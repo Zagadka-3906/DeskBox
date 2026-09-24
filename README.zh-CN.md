@@ -2,17 +2,16 @@
 
 **本地优先的 Windows 10/11 桌面整理工具：用格子管理文件、文件夹、时光、待办、随记、搜索、天气和音乐。**
 
-简体中文 | [English](README.md)
+完整中文说明 · [返回扩展版首页](README.md)
 
-> 目前暂不接受外部 PR 合并——欢迎通过 Issue / Discussion 提交 Bug、功能建议与技术讨论，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+> **非官方宿舍用电扩展版。** 本分支在 DeskBox 1.5.5 基础上加入深圳大学宿舍用电格子，由 [Zagadka-3906](https://github.com/Zagadka-3906) 独立维护，并非 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox)的发行版。[下载本分支的 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.1)。
 
-[![CI](https://github.com/Tianyu199509/DeskBox/actions/workflows/ci.yml/badge.svg)](https://github.com/Tianyu199509/DeskBox/actions/workflows/ci.yml)
-[![1.5.5 版本](https://img.shields.io/badge/release-1.5.5-2563EB.svg)](https://github.com/Tianyu199509/DeskBox/releases/tag/v1.5.5)
+> 官方项目目前暂不合并外部 PR，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+[![宿舍用电扩展版](https://img.shields.io/badge/fork-v1.5.5--dorm.1-2563EB.svg)](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.1)
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%2F11-0078D4.svg)](#环境要求)
-[![x64 and ARM64](https://img.shields.io/badge/architecture-x64%20%7C%20ARM64-5C2D91.svg)](#下载)
+[![x64 安装包](https://img.shields.io/badge/fork%20installer-x64-5C2D91.svg)](#下载)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/Tianyu199509/DeskBox?style=flat&color=yellow)](https://github.com/Tianyu199509/DeskBox/stargazers)
-[![Downloads](https://img.shields.io/github/downloads/Tianyu199509/DeskBox/total?style=flat&color=brightgreen)](https://github.com/Tianyu199509/DeskBox/releases)
 
 ![DeskBox Windows 桌面整理工具，包含文件、待办、搜索、天气和音乐格子](docs/images/brand/readme-hero-1-3-7-dark-zh-cn.png)
 
@@ -30,7 +29,7 @@ DeskBox 使用贴近 Windows 原生体验的材质，同时保留普通桌面文
 
 | | |
 | --- | --- |
-| **支持平台** | Windows 10/11，x64 与 ARM64 |
+| **支持平台** | Windows 10/11；本扩展版仅提供 x64 安装包（官方版另有 ARM64） |
 | **技术栈** | C#、WinUI 3、.NET 10 Native AOT、Windows App SDK 2.4、Rust 原生 Shell 层 |
 | **数据方式** | 本地优先；文件、随记、待办、设置与布局保存在电脑上 |
 | **界面语言** | 简体中文、繁體中文、English、日本語、Deutsch、Português do Brasil、हिन्दी、Español、Français、العربية、বাংলা、Русский |
@@ -40,18 +39,30 @@ DeskBox 使用贴近 Windows 原生体验的材质，同时保留普通桌面文
 
 ## 下载
 
-DeskBox 1.5.5 已进入发版准备阶段。下方 [GitHub Releases](https://github.com/Tianyu199509/DeskBox/releases/tag/v1.5.5) 下载链接会在正式发布后生效。
+### 宿舍用电扩展版（x64）
+
+- [下载非官方 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.1/DeskBox_DormElectricity_1.5.5_x64.exe)及其 [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.1/DeskBox_DormElectricity_1.5.5_x64.exe.sha256)。本版基于 DeskBox 1.5.5，增加了下述宿舍用电格子。
+
+安装包为内置私有 Windows App Runtime 的 x64 Full Native AOT 构建，尚未签名。更新前请备份 `%LOCALAPPDATA%\DeskBox\data`。软件内的更新入口指向官方发行版；直接安装不含此格子的官方版本会覆盖本扩展版，并可能改写已保存的格子布局。要保留宿舍用电格子，应先把官方更新合并到此分支，再构建新的安装包。
+
+### DeskBox 官方版（不含本扩展版格子）
 
 - [DeskBox 1.5.5 x64 安装包](https://github.com/Tianyu199509/DeskBox/releases/download/v1.5.5/DeskBox_Setup_1.5.5_x64.exe)，推荐大多数 Intel 和 AMD 电脑使用。
 - [DeskBox 1.5.5 ARM64 安装包](https://github.com/Tianyu199509/DeskBox/releases/download/v1.5.5/DeskBox_Setup_1.5.5_arm64.exe)，推荐骁龙、Surface Pro X 等 Windows on ARM 电脑使用。
 
-两个安装包都是 Full Native AOT 构建，并内置对应架构的私有 Windows App Runtime 2.4，可离线安装，不需要另外下载 .NET 10 或 Windows App Runtime。
+两个官方安装包都是 Full Native AOT 构建，并内置对应架构的私有 Windows App Runtime 2.4，可离线安装，不需要另外下载 .NET 10 或 Windows App Runtime。
 
-每个安装包都提供同名的 `.sha256` 校验文件。安装包目前尚未进行 Authenticode 签名，介意者请在运行前核对哈希。
+官方也为每个安装包提供同名的 `.sha256` 校验文件；这些安装包目前尚未进行 Authenticode 签名。
 
 > DeskBox 本体默认安装到当前用户目录。
 
 ## 核心功能
+
+### 宿舍用电格子（本扩展版）
+
+- 在格子设置中选择校区、楼栋并填写房间号。查询需要能够访问深圳大学宿舍用电系统。
+- 显示剩余电量和每日用电量；用电记录与缴费记录可分别选择近 3 天、7 天、1 个月、半年或 1 年。
+- 用分段控件切换用电与缴费记录。每日用电量随格子的长宽比例竖排或横排，横排时可用鼠标滚轮滚动；三点菜单提供刷新与设置。
 
 ### 文件整理与文件夹格子
 
@@ -202,6 +213,7 @@ DeskBox 不要求注册账号，也不依赖云同步。格子配置、待办、
 以下功能会按使用意图联网：
 
 - 天气数据来自 MSN 天气或 Open-Meteo。
+- 宿舍用电格子会用你选择的校区、楼栋和房间号查询学校内网服务。
 - 更新检查访问 DeskBox 更新服务或 GitHub Releases。
 - DeskBox 1.4.8 及后续 Full 安装包内置匹配架构的 Windows App Runtime；更早的直发安装器会在缺少运行时时联网下载。
 - 从浏览器拖入远程链接时，只有确认导入的内容会被下载。

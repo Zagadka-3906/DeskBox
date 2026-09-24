@@ -21,6 +21,9 @@ namespace DeskBox.Views;
 
 public sealed partial class SettingsWindow
 {
+    private const string DormForkRepositoryUrl = "https://github.com/Zagadka-3906/DeskBox";
+    private const string DormForkReleaseUrl = DormForkRepositoryUrl + "/releases/tag/v1.5.5-dorm.1";
+
     private async void ChangeManagedStoragePathButton_Click(object sender, RoutedEventArgs e)
     {
         if (SettingsRoot.XamlRoot is null)
@@ -373,6 +376,16 @@ public sealed partial class SettingsWindow
     private void OpenWebsiteButton_Click(object sender, RoutedEventArgs e)
     {
         Win32Helper.OpenFile(ViewModel.OfficialWebsiteLink);
+    }
+
+    private void OpenDormForkRepositoryButton_Click(object sender, RoutedEventArgs e)
+    {
+        Win32Helper.OpenFile(DormForkRepositoryUrl);
+    }
+
+    private void OpenDormForkReleaseButton_Click(object sender, RoutedEventArgs e)
+    {
+        Win32Helper.OpenFile(DormForkReleaseUrl);
     }
 
     private async void ShowStoreSupportDialogButton_Click(object sender, RoutedEventArgs e)

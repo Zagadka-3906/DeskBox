@@ -3151,6 +3151,27 @@ svc:Localized.DescriptionKey="Settings.DefaultWidth.Description"
                             </StackPanel>
                         </toolkit:SettingsCard>
 
+                        <toolkit:SettingsCard
+                            Header="扩展版信息"
+                            Description="扩展版 v1.5.5-dorm.1 由 Zagadka-3906 维护，基于 DeskBox 1.5.5，并非官方发行版。下方的官方版更新会覆盖宿舍用电格子。"
+                            HorizontalContentAlignment="Right">
+                            <toolkit:SettingsCard.HeaderIcon>
+                                <FontIcon Glyph="&#xE8A5;" />
+                            </toolkit:SettingsCard.HeaderIcon>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    Click="OpenDormForkRepositoryButton_Click"
+                                    Style="{StaticResource ActionButtonStyle}">
+                                    <TextBlock Text="扩展版仓库" />
+                                </Button>
+                                <Button
+                                    Click="OpenDormForkReleaseButton_Click"
+                                    Style="{StaticResource AccentButtonStyle}">
+                                    <TextBlock Text="扩展版发行页" />
+                                </Button>
+                            </StackPanel>
+                        </toolkit:SettingsCard>
+
                         <Expander
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"

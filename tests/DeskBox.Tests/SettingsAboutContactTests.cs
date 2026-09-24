@@ -3,7 +3,7 @@
 public sealed class SettingsAboutContactTests
 {
     [Fact]
-    public void AboutSection_UsesInAppFeedbackAndExposesNoEmailOrRepositoryButton()
+    public void AboutSection_PreservesInAppFeedbackAndLabelsForkLinks()
     {
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(
@@ -130,7 +130,13 @@ public sealed class SettingsAboutContactTests
         Assert.Contains("ViewModel.StoreSupportCardVisibility != Visibility.Visible", storeActions, StringComparison.Ordinal);
         Assert.Contains("Launcher.LaunchUriAsync(new Uri(ViewModel.MicrosoftStoreAppLink))", storeActions, StringComparison.Ordinal);
         Assert.Contains("Win32Helper.OpenFile(ViewModel.MicrosoftStoreLink)", storeActions, StringComparison.Ordinal);
-        Assert.Contains("感谢每一位愿意使用和支持 DeskBox 的朋友。", zhCn, StringComparison.Ordinal);
+        Assert.Contains("此入口用于支持 DeskBox 原作者。", zhCn, StringComparison.Ordinal);
+        Assert.Contains("扩展版信息", xaml, StringComparison.Ordinal);
+        Assert.Contains("OpenDormForkRepositoryButton_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("OpenDormForkReleaseButton_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("OpenDormForkRepositoryButton_Click", storeActions, StringComparison.Ordinal);
+        Assert.Contains("OpenDormForkReleaseButton_Click", storeActions, StringComparison.Ordinal);
+        Assert.Contains("官方安装包不含宿舍用电格子", zhCn, StringComparison.Ordinal);
         Assert.Contains("无论是否支持，DeskBox 都会继续认真维护，努力为大家带来更好的使用体验。", zhCn, StringComparison.Ordinal);
         Assert.DoesNotContain("不会解锁额外功能", zhCn, StringComparison.Ordinal);
         Assert.DoesNotContain("暂时不支持", zhCn, StringComparison.Ordinal);
