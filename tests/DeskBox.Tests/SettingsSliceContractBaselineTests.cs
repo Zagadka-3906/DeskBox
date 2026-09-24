@@ -249,6 +249,8 @@ public sealed class SettingsSliceContractBaselineTests
             "dormElectricityClient",
             "dormElectricityBuildingId",
             "dormElectricityBuildingName",
+            "dormElectricityFloorId",
+            "dormElectricityRoomId",
             "dormElectricityRoomName",
             "dormElectricityUsagePeriod",
             "dormElectricityPaymentPeriod"

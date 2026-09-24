@@ -22,7 +22,7 @@ namespace DeskBox.Views;
 public sealed partial class SettingsWindow
 {
     private const string DormForkRepositoryUrl = "https://github.com/Zagadka-3906/DeskBox";
-    private const string DormForkReleaseUrl = DormForkRepositoryUrl + "/releases/tag/v1.5.5-dorm.1";
+    private const string DormForkReleaseUrl = DormForkRepositoryUrl + "/releases/tag/v1.5.5-dorm.2";
 
     private async void ChangeManagedStoragePathButton_Click(object sender, RoutedEventArgs e)
     {

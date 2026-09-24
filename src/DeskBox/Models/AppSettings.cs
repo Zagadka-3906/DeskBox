@@ -736,6 +736,10 @@ public class AppSettings
 
     public string DormElectricityBuildingName { get => DormElectricity.DormElectricityBuildingName; set => DormElectricity.DormElectricityBuildingName = value; }
 
+    public string DormElectricityFloorId { get => DormElectricity.DormElectricityFloorId; set => DormElectricity.DormElectricityFloorId = value; }
+
+    public string DormElectricityRoomId { get => DormElectricity.DormElectricityRoomId; set => DormElectricity.DormElectricityRoomId = value; }
+
     public string DormElectricityRoomName { get => DormElectricity.DormElectricityRoomName; set => DormElectricity.DormElectricityRoomName = value; }
 
     public string DormElectricityUsagePeriod { get => DormElectricity.DormElectricityUsagePeriod; set => DormElectricity.DormElectricityUsagePeriod = value; }

@@ -103,7 +103,9 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         }
 
         _isRefreshing = true;
-        _locationText.Text = query.Location.BuildingName + " " + query.Location.RoomName;
+        _locationText.Text = query.Location.Client == DormElectricityService.LihuPhaseTwoClient
+            ? query.Location.RoomName
+            : query.Location.BuildingName + " " + query.Location.RoomName;
         _statusText.Text = T("DormElectricity.Refreshing");
         try
         {
@@ -122,13 +124,16 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
             _lastQuery = query;
             _lastRefreshAt = DateTime.Now;
             DormElectricityDay? latest = snapshot.Days.LastOrDefault();
-            _balanceText.Text = latest is null
+            decimal? balance = snapshot.RemainingKwh ?? latest?.RemainingKwh;
+            DateTime? recordedAt = snapshot.BalanceRecordedAt ?? latest?.RecordedAt;
+            _balanceText.Text = balance is null
                 ? "—"
-                : latest.RemainingKwh.ToString("0.##") + " " + T("DormElectricity.KwhUnit");
-            _recordedAtText.Text = latest is null
+                : balance.Value.ToString("0.##") + " " + T("DormElectricity.KwhUnit");
+            _recordedAtText.Text = recordedAt is null
                 ? T("DormElectricity.NoUsageData")
                 : _localization.Format("DormElectricity.BalanceRecordedAt",
-                    latest.RecordedAt.ToString("yyyy-MM-dd HH:mm"));
+                    recordedAt.Value.ToString(snapshot.BalanceRecordedAt is null
+                        ? "yyyy-MM-dd HH:mm" : "yyyy-MM-dd"));
             _statusText.Text = _localization.Format(
                 "DormElectricity.UpdatedAt", _lastRefreshAt.ToString("HH:mm"));
             UpdateLabels();
@@ -519,7 +524,9 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
                 settings.DormElectricity.DormElectricityClient,
                 settings.DormElectricity.DormElectricityBuildingId,
                 settings.DormElectricity.DormElectricityBuildingName,
-                settings.DormElectricity.DormElectricityRoomName),
+                settings.DormElectricity.DormElectricityRoomName,
+                settings.DormElectricity.DormElectricityFloorId,
+                settings.DormElectricity.DormElectricityRoomId),
             DormElectricityPeriods.Normalize(settings.DormElectricity.DormElectricityUsagePeriod,
                 DormElectricityPeriods.SevenDays),
             DormElectricityPeriods.Normalize(settings.DormElectricity.DormElectricityPaymentPeriod,

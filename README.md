@@ -2,11 +2,11 @@
 
 > **非官方发行版。** 本分支基于 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox) 1.5.5，由 [Zagadka-3906](https://github.com/Zagadka-3906) 维护，增加深圳大学宿舍用电格子。此扩展版并非原作者发布或维护。
 
-[下载 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.1/DeskBox_DormElectricity_1.5.5_x64.exe) · [查看发行说明](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.1) · [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.1/DeskBox_DormElectricity_1.5.5_x64.exe.sha256)
+[下载 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.2/DeskBox_DormElectricity_1.5.5_dorm.2_x64.exe) · [查看发行说明](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.2) · [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.2/DeskBox_DormElectricity_1.5.5_dorm.2_x64.exe.sha256)
 
 ## 宿舍用电格子
 
-- 在格子设置中选择校区、楼栋和房间号；查询需要能够访问深圳大学宿舍用电系统。
+- 在格子设置中选择校区和楼栋；丽湖二期从新站点逐级选择楼层与房间，其他校区填写房间号。查询需要能够访问对应的深圳大学宿舍用电系统。
 - 显示剩余电量和逐日用电量，用分段控件切换用电记录、缴费记录。
 - 两类记录分别可选择近 3 天、7 天、1 个月、半年或 1 年。
 - 每日用电量按格子的长宽比例竖排或横排；横排时鼠标滚轮可控制横向滚动。

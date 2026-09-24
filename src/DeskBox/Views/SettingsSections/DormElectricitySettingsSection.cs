@@ -11,6 +11,8 @@ public sealed partial class DormElectricitySettingsSection : UserControl
     private readonly DormElectricityService _service = new();
     private readonly ComboBox _campus = new() { MinWidth = 220 };
     private readonly ComboBox _building = new() { MinWidth = 220 };
+    private readonly ComboBox _floor = new() { MinWidth = 220 };
+    private readonly ComboBox _roomSelect = new() { MinWidth = 220 };
     private readonly TextBox _room = new() { MaxLength = 20, MinWidth = 220 };
     private readonly ComboBox _usagePeriod = new() { MinWidth = 220 };
     private readonly ComboBox _paymentPeriod = new() { MinWidth = 220 };
@@ -20,29 +22,44 @@ public sealed partial class DormElectricitySettingsSection : UserControl
     private readonly TextBlock _description = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.72 };
     private readonly TextBlock _campusLabel = new();
     private readonly TextBlock _buildingLabel = new();
+    private readonly TextBlock _floorLabel = new();
+    private readonly TextBlock _roomSelectLabel = new();
     private readonly TextBlock _roomLabel = new();
+    private readonly StackPanel _floorField;
+    private readonly StackPanel _roomSelectField;
+    private readonly StackPanel _roomInputField;
     private readonly TextBlock _usagePeriodLabel = new();
     private readonly TextBlock _paymentPeriodLabel = new();
     private SettingsService? _settings;
     private LocalizationService? _localization;
     private CancellationTokenSource? _buildingLoad;
+    private CancellationTokenSource? _floorLoad;
+    private CancellationTokenSource? _roomLoad;
     private bool _loading;
 
     public DormElectricitySettingsSection()
     {
+        _floorField = CreateField(_floorLabel, _floor);
+        _roomSelectField = CreateField(_roomSelectLabel, _roomSelect);
+        _roomInputField = CreateField(_roomLabel, _room);
         var root = new StackPanel { Spacing = 12, Margin = new Thickness(4, 10, 4, 0) };
         root.Children.Add(_title);
         root.Children.Add(_description);
         root.Children.Add(CreateField(_campusLabel, _campus));
         root.Children.Add(CreateField(_buildingLabel, _building));
-        root.Children.Add(CreateField(_roomLabel, _room));
+        root.Children.Add(_floorField);
+        root.Children.Add(_roomSelectField);
+        root.Children.Add(_roomInputField);
         root.Children.Add(CreateField(_usagePeriodLabel, _usagePeriod));
         root.Children.Add(CreateField(_paymentPeriodLabel, _paymentPeriod));
         root.Children.Add(_save);
         root.Children.Add(_status);
         Content = root;
         _campus.SelectionChanged += Campus_SelectionChanged;
+        _building.SelectionChanged += Building_SelectionChanged;
+        _floor.SelectionChanged += Floor_SelectionChanged;
         _save.Click += Save_Click;
+        UpdateRoomMode();
     }
 
     public void Initialize(SettingsService settings, LocalizationService localization)
@@ -89,7 +106,13 @@ public sealed partial class DormElectricitySettingsSection : UserControl
             _loading = false;
         }
 
+        UpdateRoomMode();
         await LoadBuildingsAsync(settings.DormElectricity.DormElectricityBuildingId);
+        if (IsLihuPhaseTwo)
+        {
+            await LoadFloorsAsync(settings.DormElectricity.DormElectricityFloorId);
+            await LoadRoomsAsync(settings.DormElectricity.DormElectricityRoomId);
+        }
     }
 
     private static StackPanel CreateField(TextBlock label, Control input)
@@ -108,6 +131,8 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         _description.Text = T("Settings.DormElectricity.Description");
         _campusLabel.Text = T("DormElectricity.Campus");
         _buildingLabel.Text = T("DormElectricity.Building");
+        _floorLabel.Text = T("DormElectricity.Floor");
+        _roomSelectLabel.Text = T("DormElectricity.Room");
         _roomLabel.Text = T("DormElectricity.Room");
         _usagePeriodLabel.Text = T("DormElectricity.UsagePeriod");
         _paymentPeriodLabel.Text = T("DormElectricity.PaymentPeriod");
@@ -127,7 +152,35 @@ public sealed partial class DormElectricitySettingsSection : UserControl
     {
         if (!_loading)
         {
+            UpdateRoomMode();
             await LoadBuildingsAsync();
+        }
+    }
+
+    private bool IsLihuPhaseTwo =>
+        (_campus.SelectedItem as ComboBoxItem)?.Tag as string == DormElectricityService.LihuPhaseTwoClient;
+
+    private void UpdateRoomMode()
+    {
+        Visibility lake = IsLihuPhaseTwo ? Visibility.Visible : Visibility.Collapsed;
+        _floorField.Visibility = lake;
+        _roomSelectField.Visibility = lake;
+        _roomInputField.Visibility = IsLihuPhaseTwo ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private async void Building_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loading && IsLihuPhaseTwo)
+        {
+            await LoadFloorsAsync();
+        }
+    }
+
+    private async void Floor_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loading && IsLihuPhaseTwo)
+        {
+            await LoadRoomsAsync();
         }
     }
 
@@ -137,6 +190,12 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         _buildingLoad?.Dispose();
         _buildingLoad = new CancellationTokenSource();
         CancellationToken token = _buildingLoad.Token;
+        _floorLoad?.Cancel();
+        _roomLoad?.Cancel();
+        _floor.Items.Clear();
+        _roomSelect.Items.Clear();
+        _floor.IsEnabled = false;
+        _roomSelect.IsEnabled = false;
         _building.Items.Clear();
         _building.IsEnabled = false;
         string? client = (_campus.SelectedItem as ComboBoxItem)?.Tag as string;
@@ -154,18 +213,107 @@ public sealed partial class DormElectricitySettingsSection : UserControl
             {
                 return;
             }
-            foreach (DormElectricityBuilding building in buildings)
+            _loading = true;
+            try
             {
-                _building.Items.Add(new ComboBoxItem { Content = building.Name, Tag = building.Id });
+                foreach (DormElectricityBuilding building in buildings)
+                {
+                    _building.Items.Add(new ComboBoxItem { Content = building.Name, Tag = building.Id });
+                }
+                _building.SelectedItem = _building.Items.OfType<ComboBoxItem>()
+                    .FirstOrDefault(item => Equals(item.Tag, selectBuildingId));
             }
-            _building.SelectedItem = _building.Items.OfType<ComboBoxItem>()
-                .FirstOrDefault(item => Equals(item.Tag, selectBuildingId));
+            finally
+            {
+                _loading = false;
+            }
             _building.IsEnabled = true;
             _status.Text = string.Empty;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
         }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            _status.Text = T("DormElectricity.NetworkError");
+        }
+    }
+
+    private async Task LoadFloorsAsync(string? selectedFloorId = null)
+    {
+        _floorLoad?.Cancel();
+        _floorLoad?.Dispose();
+        _floorLoad = new CancellationTokenSource();
+        _roomLoad?.Cancel();
+        _roomSelect.Items.Clear();
+        _roomSelect.IsEnabled = false;
+        _floor.Items.Clear();
+        _floor.IsEnabled = false;
+        if (!IsLihuPhaseTwo || _building.SelectedItem is not ComboBoxItem building)
+        {
+            return;
+        }
+        CancellationToken token = _floorLoad.Token;
+        _status.Text = T("DormElectricity.LoadingFloors");
+        try
+        {
+            IReadOnlyList<DormElectricityFloor> floors = await _service.GetFloorsAsync(
+                DormElectricityService.LihuPhaseTwoClient, (string)building.Tag, token);
+            if (token.IsCancellationRequested) return;
+            _loading = true;
+            try
+            {
+                foreach (DormElectricityFloor floor in floors)
+                {
+                    _floor.Items.Add(new ComboBoxItem { Content = floor.Name, Tag = floor.Id });
+                }
+                _floor.SelectedItem = _floor.Items.OfType<ComboBoxItem>()
+                    .FirstOrDefault(item => Equals(item.Tag, selectedFloorId));
+            }
+            finally
+            {
+                _loading = false;
+            }
+            _floor.IsEnabled = true;
+            _status.Text = string.Empty;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            _status.Text = T("DormElectricity.NetworkError");
+        }
+    }
+
+    private async Task LoadRoomsAsync(string? selectedRoomId = null)
+    {
+        _roomLoad?.Cancel();
+        _roomLoad?.Dispose();
+        _roomLoad = new CancellationTokenSource();
+        _roomSelect.Items.Clear();
+        _roomSelect.IsEnabled = false;
+        if (!IsLihuPhaseTwo || _building.SelectedItem is not ComboBoxItem building ||
+            _floor.SelectedItem is not ComboBoxItem floor)
+        {
+            return;
+        }
+        CancellationToken token = _roomLoad.Token;
+        _status.Text = T("DormElectricity.LoadingRooms");
+        try
+        {
+            IReadOnlyList<DormElectricityRoom> rooms = await _service.GetRoomsAsync(
+                DormElectricityService.LihuPhaseTwoClient, (string)building.Tag,
+                (string)floor.Tag, token);
+            if (token.IsCancellationRequested) return;
+            foreach (DormElectricityRoom room in rooms)
+            {
+                _roomSelect.Items.Add(new ComboBoxItem { Content = room.Name, Tag = room.Id });
+            }
+            _roomSelect.SelectedItem = _roomSelect.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => Equals(item.Tag, selectedRoomId));
+            _roomSelect.IsEnabled = true;
+            _status.Text = string.Empty;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
             _status.Text = T("DormElectricity.NetworkError");
@@ -180,7 +328,9 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         }
         if (_campus.SelectedItem is not ComboBoxItem campus ||
             _building.SelectedItem is not ComboBoxItem building ||
-            string.IsNullOrWhiteSpace(_room.Text))
+            (IsLihuPhaseTwo
+                ? _floor.SelectedItem is not ComboBoxItem || _roomSelect.SelectedItem is not ComboBoxItem
+                : string.IsNullOrWhiteSpace(_room.Text)))
         {
             _status.Text = T("DormElectricity.ConfigurationRequired");
             return;
@@ -190,7 +340,13 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         settings.DormElectricity.DormElectricityClient = (string)campus.Tag;
         settings.DormElectricity.DormElectricityBuildingId = (string)building.Tag;
         settings.DormElectricity.DormElectricityBuildingName = building.Content?.ToString() ?? string.Empty;
-        settings.DormElectricity.DormElectricityRoomName = _room.Text.Trim();
+        settings.DormElectricity.DormElectricityFloorId = IsLihuPhaseTwo
+            ? (_floor.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty : string.Empty;
+        settings.DormElectricity.DormElectricityRoomId = IsLihuPhaseTwo
+            ? (_roomSelect.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty : string.Empty;
+        settings.DormElectricity.DormElectricityRoomName = IsLihuPhaseTwo
+            ? (_roomSelect.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? string.Empty
+            : _room.Text.Trim();
         settings.DormElectricity.DormElectricityUsagePeriod =
             (_usagePeriod.SelectedItem as ComboBoxItem)?.Tag as string ?? DormElectricityPeriods.SevenDays;
         settings.DormElectricity.DormElectricityPaymentPeriod =

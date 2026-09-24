@@ -830,6 +830,8 @@ set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetO
                         DormElectricityService.Campuses.Last().Client;
                     _settingsService.Settings.DormElectricity.DormElectricityBuildingId = string.Empty;
                     _settingsService.Settings.DormElectricity.DormElectricityBuildingName = string.Empty;
+                    _settingsService.Settings.DormElectricity.DormElectricityFloorId = string.Empty;
+                    _settingsService.Settings.DormElectricity.DormElectricityRoomId = string.Empty;
                     _settingsService.Settings.DormElectricity.DormElectricityRoomName = string.Empty;
                     _settingsService.Settings.DormElectricity.DormElectricityUsagePeriod = DormElectricityPeriods.SevenDays;
                     _settingsService.Settings.DormElectricity.DormElectricityPaymentPeriod = DormElectricityPeriods.OneYear;

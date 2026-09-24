@@ -8,16 +8,22 @@ namespace DeskBox.Services;
 
 public sealed record DormElectricityCampus(string Client, string Name);
 public sealed record DormElectricityBuilding(string Id, string Name);
-public sealed record DormElectricityLocation(string Client, string BuildingId, string BuildingName, string RoomName);
+public sealed record DormElectricityFloor(string Id, string Name);
+public sealed record DormElectricityRoom(string Id, string Name);
+public sealed record DormElectricityLocation(string Client, string BuildingId, string BuildingName, string RoomName,
+    string FloorId = "", string RoomId = "");
 public sealed record DormElectricityDay(DateTime RecordedAt, decimal RemainingKwh, decimal TotalUsedKwh, decimal? UsedKwh);
 public sealed record DormElectricityPayment(DateTime PaidAt, decimal PurchasedKwh, decimal AmountYuan, string Method);
 public sealed record DormElectricitySnapshot(
     IReadOnlyList<DormElectricityDay> Days,
-    IReadOnlyList<DormElectricityPayment> Payments);
+    IReadOnlyList<DormElectricityPayment> Payments,
+    decimal? RemainingKwh = null,
+    DateTime? BalanceRecordedAt = null);
 
 /// <summary>Reads the university SIMS query pages through their normal read-only forms.</summary>
 public sealed class DormElectricityService
 {
+    public const string LihuPhaseTwoClient = "172.25.100.105";
     private static readonly Uri BaseUri = new("http://192.168.84.3:9090");
     private static readonly RegexOptions HtmlRegexOptions =
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant;
@@ -27,6 +33,7 @@ public sealed class DormElectricityService
         new("192.168.84.1", "北校区"),
         new("192.168.84.110", "南校区"),
         new("172.21.101.11", "西丽校区"),
+        new(LihuPhaseTwoClient, "丽湖二期"),
         new("192.168.84.87", "深大新斋区")
     ];
 
@@ -39,6 +46,10 @@ public sealed class DormElectricityService
         string client, CancellationToken cancellationToken = default)
     {
         ValidateClient(client);
+        if (client == LihuPhaseTwoClient)
+        {
+            return await LihuElectricityService.GetBuildingsAsync(cancellationToken);
+        }
         using HttpClient http = CreateClient();
         string html = await GetHtmlAsync(http, LoginUri(client), cancellationToken);
         string options = MatchGroup(html, "<select\\b[^>]*name=[\"']buildingId[\"'][^>]*>(.*?)</select>");
@@ -55,6 +66,28 @@ public sealed class DormElectricityService
             .ToArray();
     }
 
+    public Task<IReadOnlyList<DormElectricityFloor>> GetFloorsAsync(
+        string client, string buildingId, CancellationToken cancellationToken = default)
+    {
+        ValidateClient(client);
+        if (client != LihuPhaseTwoClient)
+        {
+            return Task.FromResult<IReadOnlyList<DormElectricityFloor>>([]);
+        }
+        return LihuElectricityService.GetFloorsAsync(buildingId, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<DormElectricityRoom>> GetRoomsAsync(
+        string client, string buildingId, string floorId, CancellationToken cancellationToken = default)
+    {
+        ValidateClient(client);
+        if (client != LihuPhaseTwoClient)
+        {
+            return Task.FromResult<IReadOnlyList<DormElectricityRoom>>([]);
+        }
+        return LihuElectricityService.GetRoomsAsync(buildingId, floorId, cancellationToken);
+    }
+
     public async Task<DormElectricitySnapshot> GetSnapshotAsync(
         DormElectricityLocation location,
         DateTime today,
@@ -63,6 +96,11 @@ public sealed class DormElectricityService
         CancellationToken cancellationToken = default)
     {
         ValidateClient(location.Client);
+        if (location.Client == LihuPhaseTwoClient)
+        {
+            return await LihuElectricityService.GetSnapshotAsync(
+                location, today, usagePeriod, paymentPeriod, cancellationToken);
+        }
         if (string.IsNullOrWhiteSpace(location.BuildingId) ||
             string.IsNullOrWhiteSpace(location.RoomName))
         {

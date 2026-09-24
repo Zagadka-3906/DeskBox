@@ -1,5 +1,6 @@
 using DeskBox.Services;
 using DeskBox.Models;
+using System.Text.Json;
 
 namespace DeskBox.Tests;
 
@@ -77,6 +78,60 @@ public sealed class DormElectricityServiceTests
     public void PageCount_ParsesPagination(string html, int expected)
     {
         Assert.Equal(expected, DormElectricityService.ParsePageCount(html));
+    }
+
+    [Fact]
+    public void LihuOptions_KeepDistinctBuildingFloorAndRoomIds()
+    {
+        string html = "<select name=\"drlouming\"><option value=\"\">楼栋</option>" +
+            "<option value=\"01\">梧桐树#</option></select>" +
+            "<select name=\"drceng\"><option value=\"0105\">梧桐树#5层</option></select>" +
+            "<select name=\"drfangjian\"><option value=\"010501\">梧桐树#501</option></select>";
+
+        Assert.Equal(("01", "梧桐树#"), Assert.Single(LihuElectricityService.ReadOptions(html, "drlouming")));
+        Assert.Equal(("0105", "梧桐树#5层"), Assert.Single(LihuElectricityService.ReadOptions(html, "drceng")));
+        Assert.Equal(("010501", "梧桐树#501"), Assert.Single(LihuElectricityService.ReadOptions(html, "drfangjian")));
+    }
+
+    [Fact]
+    public void LihuRecords_ReadDailyUsagePaymentsAndBalance()
+    {
+        string usageHtml = "<h6>梧桐树#501剩余电量：<span class=\"number orange\">-503.67</span> 度</h6>" +
+            "<table class=\"dataTable\"><tr class=\"titleLine\"><td>日期</td></tr>" +
+            "<tr class=\"contentLine\"><td>2026-09-24</td><td>梧桐树#501</td><td>8.78</td><td>0.6998</td></tr></table>" +
+            "<div class=\"pageer\">第 1 页 / 共 3 页</div>";
+        string paymentHtml = "<table class=\"dataTable\"><tr class=\"contentLine\">" +
+            "<td>2026/9/15 8:58:19</td><td>梧桐树#501</td><td>428.69</td>" +
+            "<td>300.00</td><td>充值人</td></tr></table>";
+
+        Assert.Equal(-503.67m, LihuElectricityService.ParseBalance(usageHtml));
+        DormElectricityDay day = Assert.Single(LihuElectricityService.ParseUsageRows(usageHtml, -503.67m));
+        Assert.Equal(new DateTime(2026, 9, 24), day.RecordedAt);
+        Assert.Equal(8.78m, day.UsedKwh);
+        DormElectricityPayment payment = Assert.Single(LihuElectricityService.ParsePaymentRows(paymentHtml));
+        Assert.Equal(428.69m, payment.PurchasedKwh);
+        Assert.Equal(300m, payment.AmountYuan);
+        Assert.Equal(3, LihuElectricityService.ParsePageCount(usageHtml));
+    }
+
+    [Fact]
+    public void LihuLocationSettings_RoundTripThroughAppSettings()
+    {
+        var settings = new AppSettings
+        {
+            DormElectricityClient = DormElectricityService.LihuPhaseTwoClient,
+            DormElectricityBuildingId = "01",
+            DormElectricityFloorId = "0105",
+            DormElectricityRoomId = "010501",
+            DormElectricityRoomName = "梧桐树#501"
+        };
+
+        string json = JsonSerializer.Serialize(settings, SettingsJsonContext.Default.AppSettings);
+        AppSettings? restored = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.AppSettings);
+
+        Assert.NotNull(restored);
+        Assert.Equal(settings.DormElectricityFloorId, restored.DormElectricityFloorId);
+        Assert.Equal(settings.DormElectricityRoomId, restored.DormElectricityRoomId);
     }
 
     private static string Table(params string[] rows) =>
