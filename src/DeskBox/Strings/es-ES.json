@@ -31,6 +31,8 @@
     "DormElectricity.Settings": "Settings",
     "DormElectricity.Refresh": "Refresh",
     "DormElectricity.UsageTab": "Usage",
+    "DormElectricity.RecordType": "Record type",
+    "DormElectricity.DailyUsage": "Daily usage",
     "DormElectricity.PaymentsTab": "Payments",
     "DormElectricity.Balance": "Remaining electricity",
     "DormElectricity.Date": "Date",
