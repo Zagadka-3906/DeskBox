@@ -34,6 +34,8 @@
     "DormElectricity.RecordType": "Record type",
     "DormElectricity.DailyUsage": "Daily usage",
     "DormElectricity.PaymentsTab": "Payments",
+    "DormElectricity.UsageShort": "Usage",
+    "DormElectricity.PaymentsShort": "Pay",
     "DormElectricity.Balance": "Remaining electricity",
     "DormElectricity.Date": "Date",
     "DormElectricity.Purchased": "Purchased (kWh)",

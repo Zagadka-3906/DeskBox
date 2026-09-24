@@ -1,13 +1,13 @@
 using DeskBox.Contracts;
 using DeskBox.Models;
 using DeskBox.Services;
+using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
-using Windows.Foundation;
 using Windows.UI;
 
 namespace DeskBox.Controls.WidgetContents;
@@ -23,19 +23,17 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
     private readonly TextBlock _recordedAtText = new() { FontSize = 11, Opacity = 0.65 };
     private readonly TextBlock _statusText = new() { FontSize = 11, Opacity = 0.7, TextWrapping = TextWrapping.Wrap };
     private readonly Grid _historyHost = new();
-    private readonly ComboBox _recordSelector = new()
+    private readonly Segmented _recordSelector = new()
     {
-        MinWidth = 104,
-        MaxWidth = 118,
+        MinHeight = 30,
         FontSize = 11,
         HorizontalAlignment = HorizontalAlignment.Right
     };
-    private readonly Button _settingsButton = new() { Content = "⚙", Padding = new Thickness(7, 3, 7, 3) };
-    private readonly Button _refreshButton = new() { Content = "↻", Padding = new Thickness(7, 3, 7, 3) };
-    private Canvas? _chartCanvas;
-    private TextBlock? _chartMaxText;
-    private TextBlock? _chartFirstDate;
-    private TextBlock? _chartLastDate;
+    private readonly TextBlock _usageSegmentText = new() { FontSize = 11, TextAlignment = TextAlignment.Center };
+    private readonly TextBlock _paymentSegmentText = new() { FontSize = 11, TextAlignment = TextAlignment.Center };
+    private readonly Button _moreButton = new();
+    private MenuFlyoutItem? _refreshMenuItem;
+    private MenuFlyoutItem? _settingsMenuItem;
     private DormElectricitySnapshot? _snapshot;
     private DormElectricityQuery? _lastQuery;
     private DateTime _lastRefreshAt;
@@ -184,12 +182,22 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _locationText.VerticalAlignment = VerticalAlignment.Center;
         _locationText.TextTrimming = TextTrimming.CharacterEllipsis;
         top.Children.Add(_locationText);
-        _recordSelector.Items.Add(new ComboBoxItem());
-        _recordSelector.Items.Add(new ComboBoxItem());
+        _recordSelector.Style = (Style)Application.Current.Resources["PivotSegmentedStyle"];
+        _recordSelector.Items.Add(new SegmentedItem
+        {
+            Content = _usageSegmentText,
+            MinHeight = 30,
+            Padding = new Thickness(6, 1, 6, 1)
+        });
+        _recordSelector.Items.Add(new SegmentedItem
+        {
+            Content = _paymentSegmentText,
+            MinHeight = 30,
+            Padding = new Thickness(6, 1, 6, 1)
+        });
         _recordSelector.SelectedIndex = 0;
         _recordSelector.SelectionChanged += (_, _) =>
         {
@@ -198,14 +206,22 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         };
         Grid.SetColumn(_recordSelector, 1);
         top.Children.Add(_recordSelector);
-        ToolTipService.SetToolTip(_settingsButton, T("DormElectricity.Settings"));
-        _settingsButton.Click += (_, _) => App.Current.ShowSettings("DormElectricitySettings");
-        Grid.SetColumn(_settingsButton, 2);
-        top.Children.Add(_settingsButton);
-        ToolTipService.SetToolTip(_refreshButton, T("DormElectricity.Refresh"));
-        _refreshButton.Click += async (_, _) => await RefreshAsync();
-        Grid.SetColumn(_refreshButton, 3);
-        top.Children.Add(_refreshButton);
+        _moreButton.Style = (Style)Application.Current.Resources["WidgetTitleActionButtonStyle"];
+        _moreButton.Content = new FontIcon { Glyph = "\uE712", FontSize = 16 };
+        ToolTipService.SetToolTip(_moreButton, T("Widget.Tooltip.More"));
+        var menu = new MenuFlyout();
+        _refreshMenuItem = new MenuFlyoutItem
+        {
+            Icon = new FontIcon { Glyph = "\uE72C" }
+        };
+        _refreshMenuItem.Click += async (_, _) => await RefreshAsync();
+        _settingsMenuItem = WidgetSettingsMenuHelper.CreateMenuItem(
+            WidgetKind.DormElectricity, _localization);
+        menu.Items.Add(_refreshMenuItem);
+        menu.Items.Add(_settingsMenuItem);
+        _moreButton.Flyout = menu;
+        Grid.SetColumn(_moreButton, 2);
+        top.Children.Add(_moreButton);
         root.Children.Add(top);
 
         var balanceCard = new Border
@@ -232,16 +248,29 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
 
     private void UpdateLabels()
     {
-        ((ComboBoxItem)_recordSelector.Items[0]).Content = T("DormElectricity.UsageTab");
-        ((ComboBoxItem)_recordSelector.Items[1]).Content = T("DormElectricity.PaymentsTab");
+        UpdateSegmentLabels(ActualWidth);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
             _recordSelector, T("DormElectricity.RecordType"));
+        _refreshMenuItem!.Text = T("DormElectricity.Refresh");
+        _settingsMenuItem!.Text = T(WidgetSettingsMenuHelper.GetLocalizationKey(WidgetKind.DormElectricity));
+        ToolTipService.SetToolTip(_moreButton, T("Widget.Tooltip.More"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+            _moreButton, T("Widget.Tooltip.More"));
         if (Content is Grid root && root.Children.OfType<Border>().FirstOrDefault()?.Child is StackPanel stack &&
             stack.Children.FirstOrDefault() is TextBlock label)
         {
             label.Text = T("DormElectricity.Balance");
         }
         RenderRows();
+    }
+
+    private void UpdateSegmentLabels(double width)
+    {
+        bool compact = width > 0 && width < 230;
+        _usageSegmentText.Text = T(compact ? "DormElectricity.UsageShort" : "DormElectricity.UsageTab");
+        _paymentSegmentText.Text = T(compact ? "DormElectricity.PaymentsShort" : "DormElectricity.PaymentsTab");
+        ToolTipService.SetToolTip(_recordSelector.Items[0] as UIElement, T("DormElectricity.UsageTab"));
+        ToolTipService.SetToolTip(_recordSelector.Items[1] as UIElement, T("DormElectricity.PaymentsTab"));
     }
 
     private void Widget_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -255,8 +284,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         _recordedAtText.Visibility = shortWidget ? Visibility.Collapsed : Visibility.Visible;
         _statusText.Visibility = shortWidget ? Visibility.Collapsed : Visibility.Visible;
         _locationText.Visibility = e.NewSize.Width < 230 ? Visibility.Collapsed : Visibility.Visible;
-        _refreshButton.Visibility = e.NewSize.Width < 260 ? Visibility.Collapsed : Visibility.Visible;
-        _settingsButton.Visibility = e.NewSize.Width < 170 ? Visibility.Collapsed : Visibility.Visible;
+        UpdateSegmentLabels(e.NewSize.Width);
         DormElectricityUsageLayout layout = GetUsageLayout(e.NewSize.Width, e.NewSize.Height);
         if (layout != _usageLayout)
         {
@@ -270,10 +298,6 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
 
     private static DormElectricityUsageLayout GetUsageLayout(double width, double height)
     {
-        if (width >= 420 && height >= 340 && width * height >= 190_000)
-        {
-            return DormElectricityUsageLayout.Chart;
-        }
         return width >= height * 1.3
             ? DormElectricityUsageLayout.Horizontal
             : DormElectricityUsageLayout.Vertical;
@@ -282,7 +306,6 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
     private void RenderRows()
     {
         _historyHost.Children.Clear();
-        _chartCanvas = null;
         if (_snapshot is null)
         {
             _historyHost.Children.Add(new TextBlock
@@ -301,10 +324,6 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         else if (_snapshot.Days.Count == 0)
         {
             _historyHost.Children.Add(new TextBlock { Text = T("DormElectricity.NoUsageData"), Opacity = 0.7 });
-        }
-        else if (_usageLayout == DormElectricityUsageLayout.Chart)
-        {
-            _historyHost.Children.Add(CreateChartView());
         }
         else
         {
@@ -417,136 +436,40 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         {
             Content = items,
             HorizontalScrollBarVisibility = horizontal ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = horizontal ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto
+            VerticalScrollBarVisibility = horizontal ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto,
+            HorizontalScrollMode = horizontal ? ScrollMode.Enabled : ScrollMode.Disabled,
+            VerticalScrollMode = horizontal ? ScrollMode.Disabled : ScrollMode.Enabled
         };
+        if (horizontal)
+        {
+            scroll.AddHandler(
+                UIElement.PointerWheelChangedEvent,
+                new PointerEventHandler(UsageScroll_PointerWheelChanged),
+                handledEventsToo: true);
+        }
         Grid.SetRow(scroll, 1);
         frame.Children.Add(scroll);
         return frame;
     }
 
-    private Grid CreateChartView()
+    private static void UsageScroll_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
-        string period = GetQuery()?.UsagePeriod ?? DormElectricityPeriods.SevenDays;
-        Grid frame = CreateHistoryFrame(T("DormElectricity.DailyUsage") + " · " +
-            T(DormElectricityPeriods.LabelKey(period)));
-        var chart = new Grid { ColumnSpacing = 7, RowSpacing = 4 };
-        chart.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        chart.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        chart.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        chart.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var scale = new Grid { MinWidth = 32 };
-        _chartMaxText = new TextBlock { FontSize = 10, Opacity = 0.65 };
-        scale.Children.Add(_chartMaxText);
-        scale.Children.Add(new TextBlock
-        {
-            Text = "0",
-            FontSize = 10,
-            Opacity = 0.65,
-            VerticalAlignment = VerticalAlignment.Bottom
-        });
-        chart.Children.Add(scale);
-        _chartCanvas = new Canvas { MinHeight = 110 };
-        _chartCanvas.SizeChanged += (_, _) => DrawChart();
-        Grid.SetColumn(_chartCanvas, 1);
-        chart.Children.Add(_chartCanvas);
-        var dates = new Grid();
-        dates.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        dates.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _chartFirstDate = new TextBlock { FontSize = 10, Opacity = 0.65 };
-        _chartLastDate = new TextBlock { FontSize = 10, Opacity = 0.65 };
-        dates.Children.Add(_chartFirstDate);
-        Grid.SetColumn(_chartLastDate, 1);
-        dates.Children.Add(_chartLastDate);
-        Grid.SetRow(dates, 1);
-        Grid.SetColumn(dates, 1);
-        chart.Children.Add(dates);
-        Grid.SetRow(chart, 1);
-        frame.Children.Add(chart);
-        return frame;
-    }
-
-    private void DrawChart()
-    {
-        Canvas? canvas = _chartCanvas;
-        IReadOnlyList<DormElectricityDay>? days = _snapshot?.Days;
-        if (canvas is null || days is null || days.Count == 0 ||
-            canvas.ActualWidth <= 0 || canvas.ActualHeight <= 0)
+        if (sender is not ScrollViewer scroll || scroll.ScrollableWidth <= 0)
         {
             return;
         }
-
-        double width = canvas.ActualWidth;
-        double height = canvas.ActualHeight;
-        (DateTime start, DateTime end) = GetUsageDateRange();
-        int dayCount = (end - start).Days + 1;
-        if (dayCount <= 0)
+        int delta = e.GetCurrentPoint(scroll).Properties.MouseWheelDelta;
+        if (delta == 0)
         {
             return;
         }
-        Dictionary<DateTime, DormElectricityDay> byDate = days.ToDictionary(day => day.RecordedAt.Date);
-        double maximum = Math.Max(1, (double)days.Where(day => day.UsedKwh.HasValue)
-            .Select(day => day.UsedKwh!.Value).DefaultIfEmpty(0).Max() * 1.1);
-        _chartMaxText!.Text = maximum.ToString("0.#") + " " + T("DormElectricity.KwhUnit");
-        _chartFirstDate!.Text = start.ToString("MM-dd");
-        _chartLastDate!.Text = end.ToString("MM-dd");
-        canvas.Children.Clear();
-        var gridBrush = new SolidColorBrush(Color.FromArgb(45, 125, 125, 125));
-        for (int index = 0; index <= 3; index++)
+        double target = Math.Clamp(scroll.HorizontalOffset - delta * 1.2, 0, scroll.ScrollableWidth);
+        if (Math.Abs(target - scroll.HorizontalOffset) < 0.5)
         {
-            double y = height * index / 3;
-            canvas.Children.Add(new Line
-            {
-                X1 = 0, X2 = width, Y1 = y, Y2 = y,
-                Stroke = gridBrush, StrokeThickness = 1
-            });
+            return;
         }
-
-        var accent = new SolidColorBrush(Color.FromArgb(255, 48, 139, 221));
-        var run = new List<Point>();
-        void AddRun()
-        {
-            if (run.Count > 1)
-            {
-                var line = new Polyline { Stroke = accent, StrokeThickness = 2.5 };
-                foreach (Point point in run)
-                {
-                    line.Points.Add(point);
-                }
-                canvas.Children.Add(line);
-            }
-            else if (run.Count == 1 && dayCount > 31)
-            {
-                var dot = new Ellipse { Width = 7, Height = 7, Fill = accent };
-                Canvas.SetLeft(dot, run[0].X - 3.5);
-                Canvas.SetTop(dot, run[0].Y - 3.5);
-                canvas.Children.Add(dot);
-            }
-            run.Clear();
-        }
-
-        for (int index = 0; index < dayCount; index++)
-        {
-            DateTime date = start.AddDays(index);
-            if (!byDate.TryGetValue(date, out DormElectricityDay? day) ||
-                day.UsedKwh is not decimal used)
-            {
-                AddRun();
-                continue;
-            }
-            double x = dayCount == 1 ? width / 2 : 4 + index * Math.Max(0, width - 8) / (dayCount - 1);
-            double y = height - 4 - Math.Clamp((double)used / maximum, 0, 1) * Math.Max(0, height - 8);
-            run.Add(new Point(x, y));
-            if (dayCount <= 31)
-            {
-                var dot = new Ellipse { Width = 7, Height = 7, Fill = accent };
-                Canvas.SetLeft(dot, x - 3.5);
-                Canvas.SetTop(dot, y - 3.5);
-                ToolTipService.SetToolTip(dot, date.ToString("yyyy-MM-dd") +
-                    " · " + used.ToString("0.##") + " " + T("DormElectricity.KwhUnit"));
-                canvas.Children.Add(dot);
-            }
-        }
-        AddRun();
+        scroll.ChangeView(target, null, null, disableAnimation: true);
+        e.Handled = true;
     }
 
     private (DateTime Start, DateTime End) GetUsageDateRange()
@@ -640,7 +563,6 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
     private enum DormElectricityUsageLayout
     {
         Vertical,
-        Horizontal,
-        Chart
+        Horizontal
     }
 }

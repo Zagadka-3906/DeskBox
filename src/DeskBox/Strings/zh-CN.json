@@ -34,6 +34,8 @@
     "DormElectricity.RecordType": "记录类型",
     "DormElectricity.DailyUsage": "每日用电量",
     "DormElectricity.PaymentsTab": "缴费记录",
+    "DormElectricity.UsageShort": "用电",
+    "DormElectricity.PaymentsShort": "缴费",
     "DormElectricity.Balance": "剩余电量",
     "DormElectricity.Date": "日期",
     "DormElectricity.Purchased": "购电(度)",
