@@ -694,6 +694,7 @@ public sealed partial class WidgetManager
             WidgetKind.QuickCapture => "QuickCapture.Name",
             WidgetKind.Todo => "Todo.Title",
             WidgetKind.Weather => "Weather.Title",
+            WidgetKind.DormElectricity => "DormElectricity.Title",
             WidgetKind.Music => "Music.Title",
             WidgetKind.Search => "Search.Title",
             WidgetKind.Glance => "Glance.Title",

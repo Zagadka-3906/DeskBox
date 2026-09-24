@@ -143,6 +143,7 @@ public static class FeatureWidgetSettings
             WidgetKind.Weather => false,
             WidgetKind.Search => false,
             WidgetKind.Glance => false,
+            WidgetKind.DormElectricity => false,
             _ => false
         };
     }

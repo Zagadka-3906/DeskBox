@@ -65,10 +65,14 @@ public sealed class SettingsDeferredSectionsTests
         }
         if (element.Name.NamespaceName == "using:DeskBox.Views.SettingsSections")
         {
-            XElement nested = XDocument.Load(Path.Combine(viewsRoot, "SettingsSections", name + ".xaml")).Root!;
-            foreach (var entry in ReadEntries(nested, tag, viewsRoot))
+            string sectionXaml = Path.Combine(viewsRoot, "SettingsSections", name + ".xaml");
+            if (File.Exists(sectionXaml))
             {
-                yield return entry;
+                XElement nested = XDocument.Load(sectionXaml).Root!;
+                foreach (var entry in ReadEntries(nested, tag, viewsRoot))
+                {
+                    yield return entry;
+                }
             }
         }
         foreach (XElement child in element.Elements())

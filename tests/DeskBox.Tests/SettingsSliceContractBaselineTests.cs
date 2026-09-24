@@ -243,7 +243,14 @@ public sealed class SettingsSliceContractBaselineTests
                 s, DeskBox.Services.SettingsJsonContext.Default.AppSettings));
         string[] actual = doc.RootElement.EnumerateObject()
             .Select(p => p.Name).ToArray();
-        Assert.Equal(ExpectedMemberOrder, actual);
+        Assert.Equal(ExpectedMemberOrder, actual.Take(ExpectedMemberOrder.Length));
+        Assert.Equal(
+        [
+            "dormElectricityClient",
+            "dormElectricityBuildingId",
+            "dormElectricityBuildingName",
+            "dormElectricityRoomName"
+        ], actual.Skip(ExpectedMemberOrder.Length));
     }
 
     private static readonly string[] ExpectedMemberOrder =

@@ -56,6 +56,9 @@ public class AppSettings
     public WeatherSettingsSlice Weather { get; } = new();
 
     [JsonIgnore]
+    public DormElectricitySettingsSlice DormElectricity { get; } = new();
+
+    [JsonIgnore]
     public SearchSettingsSlice Search { get; } = new();
 
     // ─── Serialization facade (wire contract, order-significant) ──
@@ -725,4 +728,13 @@ public class AppSettings
 
     /// <inheritdoc cref="CloudBackupSettingsSlice.CloudBackupLastUnverifiedUtcTicks"/>
     public long CloudBackupLastUnverifiedUtcTicks { get => CloudBackup.CloudBackupLastUnverifiedUtcTicks; set => CloudBackup.CloudBackupLastUnverifiedUtcTicks = value; }
+
+    // ─── Dormitory Electricity Widget Settings ────────────────────
+    public string DormElectricityClient { get => DormElectricity.DormElectricityClient; set => DormElectricity.DormElectricityClient = value; }
+
+    public string DormElectricityBuildingId { get => DormElectricity.DormElectricityBuildingId; set => DormElectricity.DormElectricityBuildingId = value; }
+
+    public string DormElectricityBuildingName { get => DormElectricity.DormElectricityBuildingName; set => DormElectricity.DormElectricityBuildingName = value; }
+
+    public string DormElectricityRoomName { get => DormElectricity.DormElectricityRoomName; set => DormElectricity.DormElectricityRoomName = value; }
 }

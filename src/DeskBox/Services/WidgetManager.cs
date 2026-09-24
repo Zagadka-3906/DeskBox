@@ -677,6 +677,11 @@ public sealed partial class WidgetManager
                 SetWeatherFeatureWidgetEnabledAsync,
                 () => HideAndCloseFeatureWidgetAsync(WidgetKind.Weather)),
             new(
+                WidgetKind.DormElectricity,
+                async _ => await CreateSingletonContentFeatureWidgetAsync(WidgetKind.DormElectricity),
+                (enabled, reveal) => SetContentFeatureWidgetEnabledAsync(WidgetKind.DormElectricity, enabled, reveal),
+                () => HideAndCloseFeatureWidgetAsync(WidgetKind.DormElectricity)),
+            new(
                 WidgetKind.Search,
                 async _ => await CreateSingletonContentFeatureWidgetAsync(WidgetKind.Search),
                 SetSearchFeatureWidgetEnabledAsync,
@@ -729,6 +734,14 @@ public sealed partial class WidgetManager
                     request.CancellationToken)),
             new(
                 WidgetKind.Weather,
+                async request => await CreateContentWidgetFromConfigAsync(
+                    request.Config,
+                    request.KeepPreparedForAnimation,
+                    request.RevealAfterCreate,
+                    request.ShowRaisedWhileInitializing,
+                    request.CancellationToken)),
+            new(
+                WidgetKind.DormElectricity,
                 async request => await CreateContentWidgetFromConfigAsync(
                     request.Config,
                     request.KeepPreparedForAnimation,
@@ -2521,6 +2534,7 @@ public sealed partial class WidgetManager
                 Math.Max(_settingsService.Settings.DefaultWidgetHeight, 420)),
             WidgetKind.Music => (380, 190),
             WidgetKind.Weather => (200, 200),
+            WidgetKind.DormElectricity => (380, 390),
             WidgetKind.Glance => (360, 260),
             _ => (
                 _settingsService.Settings.DefaultWidgetWidth,

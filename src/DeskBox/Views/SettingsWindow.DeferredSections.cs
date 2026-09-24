@@ -61,6 +61,9 @@ public sealed partial class SettingsWindow
             case GlanceWidgetSettingsSection glanceSettings:
                 glanceSettings.SetOwnerWindow(_hWnd);
                 break;
+            case DormElectricitySettingsSection dormElectricitySettings:
+                dormElectricitySettings.Initialize(_settingsService, _localizationService);
+                break;
         }
 
         if (sectionTag == "FileStorageSettings")

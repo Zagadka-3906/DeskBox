@@ -2323,6 +2323,9 @@ svc:Localized.DescriptionKey="Settings.DefaultWidth.Description"
                     </StackPanel>
                 </StackPanel>
                     </DataTemplate>
+                    <DataTemplate x:Key="DormElectricitySettingsSectionTemplate" x:DataType="viewModels:SettingsViewModel">
+                        <sections:DormElectricitySettingsSection x:Name="DormElectricitySettingsSection" Visibility="Collapsed" />
+                    </DataTemplate>
                     <DataTemplate x:Key="GlanceSettingsSectionTemplate" x:DataType="viewModels:SettingsViewModel">
                         <sections:GlanceWidgetSettingsSection x:Name="GlanceSettingsSection" Visibility="Collapsed" />
                     </DataTemplate>

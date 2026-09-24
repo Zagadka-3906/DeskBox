@@ -239,7 +239,10 @@ public enum WidgetKind
     Productivity,
 
     /// <summary>At-a-glance background, time and date widget.</summary>
-    Glance
+    Glance,
+
+    /// <summary>Dormitory electricity usage and payment history.</summary>
+    DormElectricity
 }
 
 public sealed class WidgetKindJsonConverter : JsonConverter<WidgetKind>

@@ -825,6 +825,13 @@ set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetO
                     _settingsService.Settings.WeatherShowPressure = false;
                     _settingsService.Settings.WeatherRefreshIntervalMinutes = 60;
                     break;
+                case WidgetKind.DormElectricity:
+                    _settingsService.Settings.DormElectricity.DormElectricityClient =
+                        DormElectricityService.Campuses.Last().Client;
+                    _settingsService.Settings.DormElectricity.DormElectricityBuildingId = string.Empty;
+                    _settingsService.Settings.DormElectricity.DormElectricityBuildingName = string.Empty;
+                    _settingsService.Settings.DormElectricity.DormElectricityRoomName = string.Empty;
+                    break;
             }
         }
         finally

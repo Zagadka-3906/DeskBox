@@ -371,6 +371,7 @@ public sealed partial class WidgetManager
             WidgetKind.Todo => "Todo.Title",
             WidgetKind.Music => "Music.Title",
             WidgetKind.Weather => "Weather.Title",
+            WidgetKind.DormElectricity => "DormElectricity.Title",
             WidgetKind.Search => "Search.Title",
             WidgetKind.Glance => "Glance.Title",
             WidgetKind.Tags => "Tags.Title",
@@ -420,6 +421,7 @@ public sealed partial class WidgetManager
             {
                 WidgetKind.Music => 380,
                 WidgetKind.Weather => 200,
+                WidgetKind.DormElectricity => 380,
                 WidgetKind.Search => 280,
                 WidgetKind.Glance => 360,
                 _ => Math.Max(_settingsService.Settings.DefaultWidgetWidth, 320)
@@ -428,6 +430,7 @@ public sealed partial class WidgetManager
             {
                 WidgetKind.Music => 190,
                 WidgetKind.Weather => 200,
+                WidgetKind.DormElectricity => 390,
                 WidgetKind.Search => 90,
                 WidgetKind.Glance => 260,
                 _ => Math.Max(_settingsService.Settings.DefaultWidgetHeight, 360)
