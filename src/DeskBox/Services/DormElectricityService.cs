@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using DeskBox.Models;
 
 namespace DeskBox.Services;
 
@@ -57,6 +58,8 @@ public sealed class DormElectricityService
     public async Task<DormElectricitySnapshot> GetSnapshotAsync(
         DormElectricityLocation location,
         DateTime today,
+        string usagePeriod,
+        string paymentPeriod,
         CancellationToken cancellationToken = default)
     {
         ValidateClient(location.Client);
@@ -90,12 +93,23 @@ public sealed class DormElectricityService
         }
 
         DateTime end = today.Date;
-        DateTime usageStart = today.Date.AddDays(-8);
+        DateTime usageStart = DormElectricityPeriods.StartDate(
+            DormElectricityPeriods.Normalize(usagePeriod, DormElectricityPeriods.SevenDays), end);
+        DateTime baselineStart = usageStart.AddDays(-1);
         string usageHtml = await QueryAsync(
-            http, location, roomId, "2", usageStart, end, 1, cancellationToken);
-        IReadOnlyList<DormElectricityDay> days = BuildRecentDays(ParseUsageRows(usageHtml));
+            http, location, roomId, "2", baselineStart, end, 1, cancellationToken);
+        var usage = new List<DormElectricityDay>(ParseUsageRows(usageHtml));
+        int usagePageCount = ParsePageCount(usageHtml);
+        for (int page = 2; page <= usagePageCount; page++)
+        {
+            string html = await QueryAsync(
+                http, location, roomId, "2", baselineStart, end, page, cancellationToken);
+            usage.AddRange(ParseUsageRows(html));
+        }
+        IReadOnlyList<DormElectricityDay> days = BuildRecentDays(usage, usageStart, end);
 
-        DateTime paymentStart = new(2000, 1, 1);
+        DateTime paymentStart = DormElectricityPeriods.StartDate(
+            DormElectricityPeriods.Normalize(paymentPeriod, DormElectricityPeriods.OneYear), end);
         string paymentHtml = await QueryAsync(
             http, location, roomId, "1", paymentStart, end, 1, cancellationToken);
         int pageCount = ParsePageCount(paymentHtml);
@@ -108,7 +122,9 @@ public sealed class DormElectricityService
         }
         return new DormElectricitySnapshot(
             days,
-            payments.OrderByDescending(payment => payment.PaidAt).ToArray());
+            payments.Where(payment => payment.PaidAt >= paymentStart &&
+                    payment.PaidAt.Date <= end)
+                .OrderByDescending(payment => payment.PaidAt).ToArray());
     }
 
     private static async Task<string> QueryAsync(
@@ -147,7 +163,7 @@ public sealed class DormElectricityService
     }
 
     internal static IReadOnlyList<DormElectricityDay> BuildRecentDays(
-        IReadOnlyList<DormElectricityDay> snapshots)
+        IReadOnlyList<DormElectricityDay> snapshots, DateTime startInclusive, DateTime endExclusive)
     {
         var byDay = snapshots
             .GroupBy(day => day.RecordedAt.Date)
@@ -155,9 +171,14 @@ public sealed class DormElectricityService
             .OrderBy(day => day.RecordedAt.Date)
             .ToArray();
         var result = new List<DormElectricityDay>();
-        for (int index = Math.Max(0, byDay.Length - 7); index < byDay.Length; index++)
+        for (int index = 0; index < byDay.Length; index++)
         {
             DormElectricityDay current = byDay[index];
+            if (current.RecordedAt.Date < startInclusive.Date ||
+                current.RecordedAt.Date >= endExclusive.Date)
+            {
+                continue;
+            }
             decimal? used = index > 0 &&
                 byDay[index - 1].RecordedAt.Date == current.RecordedAt.Date.AddDays(-1)
                     ? current.TotalUsedKwh - byDay[index - 1].TotalUsedKwh

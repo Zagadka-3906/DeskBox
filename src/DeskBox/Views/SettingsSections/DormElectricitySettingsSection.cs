@@ -12,6 +12,8 @@ public sealed partial class DormElectricitySettingsSection : UserControl
     private readonly ComboBox _campus = new() { MinWidth = 220 };
     private readonly ComboBox _building = new() { MinWidth = 220 };
     private readonly TextBox _room = new() { MaxLength = 20, MinWidth = 220 };
+    private readonly ComboBox _usagePeriod = new() { MinWidth = 220 };
+    private readonly ComboBox _paymentPeriod = new() { MinWidth = 220 };
     private readonly Button _save = new();
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.75 };
     private readonly TextBlock _title = new() { FontSize = 22, FontWeight = FontWeights.SemiBold };
@@ -19,6 +21,8 @@ public sealed partial class DormElectricitySettingsSection : UserControl
     private readonly TextBlock _campusLabel = new();
     private readonly TextBlock _buildingLabel = new();
     private readonly TextBlock _roomLabel = new();
+    private readonly TextBlock _usagePeriodLabel = new();
+    private readonly TextBlock _paymentPeriodLabel = new();
     private SettingsService? _settings;
     private LocalizationService? _localization;
     private CancellationTokenSource? _buildingLoad;
@@ -32,6 +36,8 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         root.Children.Add(CreateField(_campusLabel, _campus));
         root.Children.Add(CreateField(_buildingLabel, _building));
         root.Children.Add(CreateField(_roomLabel, _room));
+        root.Children.Add(CreateField(_usagePeriodLabel, _usagePeriod));
+        root.Children.Add(CreateField(_paymentPeriodLabel, _paymentPeriod));
         root.Children.Add(_save);
         root.Children.Add(_status);
         Content = root;
@@ -46,6 +52,11 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         foreach (DormElectricityCampus campus in DormElectricityService.Campuses)
         {
             _campus.Items.Add(new ComboBoxItem { Content = campus.Name, Tag = campus.Client });
+        }
+        foreach (string period in DormElectricityPeriods.Options)
+        {
+            _usagePeriod.Items.Add(new ComboBoxItem { Tag = period });
+            _paymentPeriod.Items.Add(new ComboBoxItem { Tag = period });
         }
         _localization.LanguageChanged += Localization_LanguageChanged;
         UpdateLabels();
@@ -66,6 +77,12 @@ public sealed partial class DormElectricitySettingsSection : UserControl
                 .FirstOrDefault(item => Equals(item.Tag, settings.DormElectricity.DormElectricityClient))
                 ?? _campus.Items.OfType<ComboBoxItem>().LastOrDefault();
             _room.Text = settings.DormElectricity.DormElectricityRoomName;
+            _usagePeriod.SelectedItem = _usagePeriod.Items.OfType<ComboBoxItem>()
+                .First(item => Equals(item.Tag, DormElectricityPeriods.Normalize(
+                    settings.DormElectricity.DormElectricityUsagePeriod, DormElectricityPeriods.SevenDays)));
+            _paymentPeriod.SelectedItem = _paymentPeriod.Items.OfType<ComboBoxItem>()
+                .First(item => Equals(item.Tag, DormElectricityPeriods.Normalize(
+                    settings.DormElectricity.DormElectricityPaymentPeriod, DormElectricityPeriods.OneYear)));
         }
         finally
         {
@@ -92,6 +109,16 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         _campusLabel.Text = T("DormElectricity.Campus");
         _buildingLabel.Text = T("DormElectricity.Building");
         _roomLabel.Text = T("DormElectricity.Room");
+        _usagePeriodLabel.Text = T("DormElectricity.UsagePeriod");
+        _paymentPeriodLabel.Text = T("DormElectricity.PaymentPeriod");
+        foreach (ComboBoxItem item in _usagePeriod.Items.OfType<ComboBoxItem>())
+        {
+            item.Content = T(DormElectricityPeriods.LabelKey((string)item.Tag));
+        }
+        foreach (ComboBoxItem item in _paymentPeriod.Items.OfType<ComboBoxItem>())
+        {
+            item.Content = T(DormElectricityPeriods.LabelKey((string)item.Tag));
+        }
         _save.Content = T("DormElectricity.Save");
         _room.PlaceholderText = T("DormElectricity.RoomPlaceholder");
     }
@@ -164,6 +191,10 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         settings.DormElectricity.DormElectricityBuildingId = (string)building.Tag;
         settings.DormElectricity.DormElectricityBuildingName = building.Content?.ToString() ?? string.Empty;
         settings.DormElectricity.DormElectricityRoomName = _room.Text.Trim();
+        settings.DormElectricity.DormElectricityUsagePeriod =
+            (_usagePeriod.SelectedItem as ComboBoxItem)?.Tag as string ?? DormElectricityPeriods.SevenDays;
+        settings.DormElectricity.DormElectricityPaymentPeriod =
+            (_paymentPeriod.SelectedItem as ComboBoxItem)?.Tag as string ?? DormElectricityPeriods.OneYear;
         _save.IsEnabled = false;
         try
         {

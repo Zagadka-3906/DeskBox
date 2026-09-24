@@ -24,7 +24,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
     private readonly Button _usageButton = new();
     private readonly Button _paymentsButton = new();
     private DormElectricitySnapshot? _snapshot;
-    private DormElectricityLocation? _lastLocation;
+    private DormElectricityQuery? _lastQuery;
     private DateTime _lastRefreshAt;
     private bool _showPayments;
     private bool _isRefreshing;
@@ -76,11 +76,11 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
             return;
         }
 
-        DormElectricityLocation? location = GetLocation();
-        if (location is null)
+        DormElectricityQuery? query = GetQuery();
+        if (query is null)
         {
             _snapshot = null;
-            _lastLocation = null;
+            _lastQuery = null;
             _locationText.Text = string.Empty;
             _balanceText.Text = "—";
             _recordedAtText.Text = string.Empty;
@@ -90,23 +90,23 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         }
 
         _isRefreshing = true;
-        _locationText.Text = location.BuildingName + " " + location.RoomName;
+        _locationText.Text = query.Location.BuildingName + " " + query.Location.RoomName;
         _statusText.Text = T("DormElectricity.Refreshing");
         try
         {
             DormElectricitySnapshot snapshot = await _service.GetSnapshotAsync(
-                location, DateTime.Now);
+                query.Location, DateTime.Now, query.UsagePeriod, query.PaymentPeriod);
             if (_disposed)
             {
                 return;
             }
-            if (GetLocation() != location)
+            if (GetQuery() != query)
             {
                 _pendingRefresh = true;
                 return;
             }
             _snapshot = snapshot;
-            _lastLocation = location;
+            _lastQuery = query;
             _lastRefreshAt = DateTime.Now;
             DormElectricityDay? latest = snapshot.Days.LastOrDefault();
             _balanceText.Text = latest is null
@@ -118,7 +118,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
                     latest.RecordedAt.ToString("yyyy-MM-dd HH:mm"));
             _statusText.Text = _localization.Format(
                 "DormElectricity.UpdatedAt", _lastRefreshAt.ToString("HH:mm"));
-            RenderRows();
+            UpdateLabels();
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
@@ -222,8 +222,13 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
 
     private void UpdateLabels()
     {
-        _usageButton.Content = T("DormElectricity.UsageTab");
-        _paymentsButton.Content = T("DormElectricity.PaymentsTab");
+        DormElectricityQuery? query = GetQuery();
+        string usagePeriod = query?.UsagePeriod ?? DormElectricityPeriods.SevenDays;
+        string paymentPeriod = query?.PaymentPeriod ?? DormElectricityPeriods.OneYear;
+        _usageButton.Content = T("DormElectricity.UsageTab") + " · " +
+            T(DormElectricityPeriods.LabelKey(usagePeriod));
+        _paymentsButton.Content = T("DormElectricity.PaymentsTab") + " · " +
+            T(DormElectricityPeriods.LabelKey(paymentPeriod));
         if (Content is Grid root && root.Children.OfType<Border>().FirstOrDefault()?.Child is StackPanel stack &&
             stack.Children.FirstOrDefault() is TextBlock label)
         {
@@ -310,7 +315,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         grid.Children.Add(text);
     }
 
-    private DormElectricityLocation? GetLocation()
+    private DormElectricityQuery? GetQuery()
     {
         AppSettings? settings = _settings?.Settings;
         if (settings is null || string.IsNullOrWhiteSpace(settings.DormElectricity.DormElectricityBuildingId) ||
@@ -318,11 +323,16 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         {
             return null;
         }
-        return new DormElectricityLocation(
-            settings.DormElectricity.DormElectricityClient,
-            settings.DormElectricity.DormElectricityBuildingId,
-            settings.DormElectricity.DormElectricityBuildingName,
-            settings.DormElectricity.DormElectricityRoomName);
+        return new DormElectricityQuery(
+            new DormElectricityLocation(
+                settings.DormElectricity.DormElectricityClient,
+                settings.DormElectricity.DormElectricityBuildingId,
+                settings.DormElectricity.DormElectricityBuildingName,
+                settings.DormElectricity.DormElectricityRoomName),
+            DormElectricityPeriods.Normalize(settings.DormElectricity.DormElectricityUsagePeriod,
+                DormElectricityPeriods.SevenDays),
+            DormElectricityPeriods.Normalize(settings.DormElectricity.DormElectricityPaymentPeriod,
+                DormElectricityPeriods.OneYear));
     }
 
     private string T(string key) => _localization.T(key);
@@ -331,9 +341,10 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
 
     private void Settings_SettingsChanged()
     {
-        DormElectricityLocation? location = GetLocation();
-        if (location != _lastLocation || _isRefreshing)
+        DormElectricityQuery? query = GetQuery();
+        if (query != _lastQuery || _isRefreshing)
         {
+            UpdateLabels();
             _ = RefreshAsync();
         }
     }
@@ -354,4 +365,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         }
         _localization.LanguageChanged -= Localization_LanguageChanged;
     }
+
+    private sealed record DormElectricityQuery(
+        DormElectricityLocation Location, string UsagePeriod, string PaymentPeriod);
 }

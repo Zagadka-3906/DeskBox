@@ -7,4 +7,6 @@ public sealed class DormElectricitySettingsSlice
     public string DormElectricityBuildingId { get; set; } = string.Empty;
     public string DormElectricityBuildingName { get; set; } = string.Empty;
     public string DormElectricityRoomName { get; set; } = string.Empty;
+    public string DormElectricityUsagePeriod { get; set; } = DormElectricityPeriods.SevenDays;
+    public string DormElectricityPaymentPeriod { get; set; } = DormElectricityPeriods.OneYear;
 }

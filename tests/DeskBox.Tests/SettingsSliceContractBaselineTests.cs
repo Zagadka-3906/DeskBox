@@ -249,7 +249,9 @@ public sealed class SettingsSliceContractBaselineTests
             "dormElectricityClient",
             "dormElectricityBuildingId",
             "dormElectricityBuildingName",
-            "dormElectricityRoomName"
+            "dormElectricityRoomName",
+            "dormElectricityUsagePeriod",
+            "dormElectricityPaymentPeriod"
         ], actual.Skip(ExpectedMemberOrder.Length));
     }
 
