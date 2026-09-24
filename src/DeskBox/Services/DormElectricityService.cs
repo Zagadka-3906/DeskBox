@@ -88,6 +88,25 @@ public sealed class DormElectricityService
         return LihuElectricityService.GetRoomsAsync(buildingId, floorId, cancellationToken);
     }
 
+    public async Task ValidateLocationAsync(
+        DormElectricityLocation location, CancellationToken cancellationToken = default)
+    {
+        ValidateClient(location.Client);
+        if (location.Client == LihuPhaseTwoClient)
+        {
+            IReadOnlyList<DormElectricityRoom> rooms = await GetRoomsAsync(
+                location.Client, location.BuildingId, location.FloorId, cancellationToken);
+            if (!rooms.Any(room => room.Id == location.RoomId))
+            {
+                throw new InvalidOperationException("未找到所选房间，请重新选择楼栋、楼层和房间。");
+            }
+            return;
+        }
+
+        using HttpClient http = CreateClient();
+        await ResolveRoomIdAsync(http, location, cancellationToken);
+    }
+
     public async Task<DormElectricitySnapshot> GetSnapshotAsync(
         DormElectricityLocation location,
         DateTime today,
@@ -108,27 +127,7 @@ public sealed class DormElectricityService
         }
 
         using HttpClient http = CreateClient();
-        string login = await GetHtmlAsync(http, LoginUri(location.Client), cancellationToken);
-        string action = MatchGroup(login, "<form\\b[^>]*name=[\"']loginForm[\"'][^>]*action=[\"']([^\"']+)[\"']");
-        if (string.IsNullOrWhiteSpace(action))
-        {
-            throw new InvalidOperationException("无法读取电量查询入口。站点页面可能已更新。");
-        }
-
-        string roomPage = await PostHtmlAsync(http, new Uri(BaseUri, action),
-        [
-            Pair("client", location.Client),
-            Pair("buildingId", location.BuildingId),
-            Pair("buildingName", string.Empty),
-            Pair("roomName", location.RoomName.Trim()),
-            Pair("select", " 查询 ")
-        ], cancellationToken);
-        string roomId = MatchGroup(roomPage, "<input\\b[^>]*name=[\"']roomId[\"'][^>]*value=[\"']([^\"']+)[\"']");
-        if (string.IsNullOrWhiteSpace(roomId) ||
-            !roomPage.Contains("selectListForm", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("未找到这个房间。请检查校区、楼栋和房间号。");
-        }
+        string roomId = await ResolveRoomIdAsync(http, location, cancellationToken);
 
         DateTime end = today.Date;
         DateTime usageStart = DormElectricityPeriods.StartDate(
@@ -163,6 +162,40 @@ public sealed class DormElectricityService
             payments.Where(payment => payment.PaidAt >= paymentStart &&
                     payment.PaidAt.Date <= end)
                 .OrderByDescending(payment => payment.PaidAt).ToArray());
+    }
+
+    private static async Task<string> ResolveRoomIdAsync(
+        HttpClient http, DormElectricityLocation location, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(location.BuildingId) ||
+            string.IsNullOrWhiteSpace(location.RoomName))
+        {
+            throw new ArgumentException("请先在格子设置中选择楼栋并填写房间号。", nameof(location));
+        }
+
+        string login = await GetHtmlAsync(http, LoginUri(location.Client), cancellationToken);
+        string action = MatchGroup(login, "<form\\b[^>]*name=[\"']loginForm[\"'][^>]*action=[\"']([^\"']+)[\"']");
+        if (string.IsNullOrWhiteSpace(action))
+        {
+            throw new InvalidOperationException("无法读取电量查询入口。站点页面可能已更新。");
+        }
+
+        string roomPage = await PostHtmlAsync(http, new Uri(BaseUri, action),
+        [
+            Pair("client", location.Client),
+            Pair("buildingId", location.BuildingId),
+            Pair("buildingName", string.Empty),
+            Pair("roomName", location.RoomName.Trim()),
+            Pair("select", " 查询 ")
+        ], cancellationToken);
+        string roomId = MatchGroup(roomPage, "<input\\b[^>]*name=[\"']roomId[\"'][^>]*value=[\"']([^\"']+)[\"']");
+        if (string.IsNullOrWhiteSpace(roomId) ||
+            !roomPage.Contains("selectListForm", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("未找到这个房间。请检查校区、楼栋和房间号。");
+        }
+
+        return roomId;
     }
 
     private static async Task<string> QueryAsync(

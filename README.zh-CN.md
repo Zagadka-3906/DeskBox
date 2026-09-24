@@ -4,11 +4,11 @@
 
 完整中文说明 · [返回扩展版首页](README.md)
 
-> **非官方宿舍用电扩展版。** 本分支在 DeskBox 1.5.5 基础上加入深圳大学宿舍用电格子，由 [Zagadka-3906](https://github.com/Zagadka-3906) 独立维护，并非 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox)的发行版。[下载本分支的 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.2)。
+> **非官方宿舍用电扩展版。** 本分支在 DeskBox 1.5.5 基础上加入深圳大学宿舍用电格子，由 [Zagadka-3906](https://github.com/Zagadka-3906) 独立维护，并非 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox)的发行版。[下载本分支的 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.3)。
 
 > 官方项目目前暂不合并外部 PR，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-[![宿舍用电扩展版](https://img.shields.io/badge/fork-v1.5.5--dorm.2-2563EB.svg)](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.2)
+[![宿舍用电扩展版](https://img.shields.io/badge/fork-v1.5.5--dorm.3-2563EB.svg)](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.3)
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%2F11-0078D4.svg)](#环境要求)
 [![x64 安装包](https://img.shields.io/badge/fork%20installer-x64-5C2D91.svg)](#下载)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
@@ -41,7 +41,7 @@ DeskBox 使用贴近 Windows 原生体验的材质，同时保留普通桌面文
 
 ### 宿舍用电扩展版（x64）
 
-- [下载非官方 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.2/DeskBox_DormElectricity_1.5.5_dorm.2_x64.exe)及其 [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.2/DeskBox_DormElectricity_1.5.5_dorm.2_x64.exe.sha256)。本版基于 DeskBox 1.5.5，增加了下述宿舍用电格子。
+- [下载非官方 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.3/DeskBox_DormElectricity_1.5.5_dorm.3_x64.exe)及其 [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.3/DeskBox_DormElectricity_1.5.5_dorm.3_x64.exe.sha256)。本版基于 DeskBox 1.5.5，增加了下述宿舍用电格子。
 
 安装包为内置私有 Windows App Runtime 的 x64 Full Native AOT 构建，尚未签名。更新前请备份 `%LOCALAPPDATA%\DeskBox\data`。软件内的更新入口指向官方发行版；直接安装不含此格子的官方版本会覆盖本扩展版，并可能改写已保存的格子布局。要保留宿舍用电格子，应先把官方更新合并到此分支，再构建新的安装包。
 
@@ -61,6 +61,7 @@ DeskBox 使用贴近 Windows 原生体验的材质，同时保留普通桌面文
 ### 宿舍用电格子（本扩展版）
 
 - 在格子设置中选择校区、楼栋；丽湖二期可从新站点逐级选择楼层和房间，其他校区填写房间号。查询需要能够访问对应的深圳大学宿舍用电系统。
+- 保存设置时会检查房间是否存在；查询失败时格子显示错误，不继续显示上一个房间的数据。
 - 显示剩余电量和每日用电量；用电记录与缴费记录可分别选择近 3 天、7 天、1 个月、半年或 1 年。
 - 用分段控件切换用电与缴费记录。每日用电量随格子的长宽比例竖排或横排，横排时可用鼠标滚轮滚动；三点菜单提供刷新与设置。
 

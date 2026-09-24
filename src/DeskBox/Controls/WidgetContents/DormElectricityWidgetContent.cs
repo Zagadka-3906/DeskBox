@@ -35,6 +35,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
     private MenuFlyoutItem? _refreshMenuItem;
     private MenuFlyoutItem? _settingsMenuItem;
     private DormElectricitySnapshot? _snapshot;
+    private string? _emptyMessage;
     private DormElectricityQuery? _lastQuery;
     private DateTime _lastRefreshAt;
     private bool _showPayments;
@@ -93,6 +94,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         if (query is null)
         {
             _snapshot = null;
+            _emptyMessage = null;
             _lastQuery = null;
             _locationText.Text = string.Empty;
             _balanceText.Text = "—";
@@ -103,6 +105,15 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         }
 
         _isRefreshing = true;
+        if (query != _lastQuery || _snapshot is null)
+        {
+            _snapshot = null;
+            _lastQuery = null;
+            _balanceText.Text = "—";
+            _recordedAtText.Text = string.Empty;
+            _emptyMessage = T("DormElectricity.Refreshing");
+            RenderRows();
+        }
         _locationText.Text = query.Location.Client == DormElectricityService.LihuPhaseTwoClient
             ? query.Location.RoomName
             : query.Location.BuildingName + " " + query.Location.RoomName;
@@ -121,6 +132,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
                 return;
             }
             _snapshot = snapshot;
+            _emptyMessage = null;
             _lastQuery = query;
             _lastRefreshAt = DateTime.Now;
             DormElectricityDay? latest = snapshot.Days.LastOrDefault();
@@ -138,11 +150,23 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
                 "DormElectricity.UpdatedAt", _lastRefreshAt.ToString("HH:mm"));
             UpdateLabels();
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or ArgumentException)
         {
-            _statusText.Text = ex is HttpRequestException or TaskCanceledException
+            if (GetQuery() != query)
+            {
+                _pendingRefresh = true;
+                return;
+            }
+            string message = ex is HttpRequestException or TaskCanceledException
                 ? T("DormElectricity.NetworkError")
                 : ex.Message;
+            _snapshot = null;
+            _lastQuery = null;
+            _balanceText.Text = "—";
+            _recordedAtText.Text = string.Empty;
+            _emptyMessage = message;
+            _statusText.Text = message;
+            RenderRows();
         }
         finally
         {
@@ -315,7 +339,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         {
             _historyHost.Children.Add(new TextBlock
             {
-                Text = T("DormElectricity.ConfigurePrompt"),
+                Text = _emptyMessage ?? T("DormElectricity.ConfigurePrompt"),
                 TextWrapping = TextWrapping.Wrap,
                 Opacity = 0.7
             });
@@ -542,6 +566,17 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
         DormElectricityQuery? query = GetQuery();
         if (query != _lastQuery || _isRefreshing)
         {
+            if (query != _lastQuery)
+            {
+                _snapshot = null;
+                _balanceText.Text = "—";
+                _recordedAtText.Text = string.Empty;
+                _emptyMessage = query is null ? null : T("DormElectricity.Refreshing");
+                _locationText.Text = query is null ? string.Empty
+                    : query.Location.Client == DormElectricityService.LihuPhaseTwoClient
+                        ? query.Location.RoomName
+                        : query.Location.BuildingName + " " + query.Location.RoomName;
+            }
             UpdateLabels();
             _ = RefreshAsync();
         }

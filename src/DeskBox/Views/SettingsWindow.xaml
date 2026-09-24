@@ -3153,7 +3153,7 @@ svc:Localized.DescriptionKey="Settings.DefaultWidth.Description"
 
                         <toolkit:SettingsCard
                             Header="扩展版信息"
-                            Description="扩展版 v1.5.5-dorm.2 由 Zagadka-3906 维护，基于 DeskBox 1.5.5，并非官方发行版。下方的官方版更新会覆盖宿舍用电格子。"
+                            Description="扩展版 v1.5.5-dorm.3 由 Zagadka-3906 维护，基于 DeskBox 1.5.5，并非官方发行版。下方的官方版更新会覆盖宿舍用电格子。"
                             HorizontalContentAlignment="Right">
                             <toolkit:SettingsCard.HeaderIcon>
                                 <FontIcon Glyph="&#xE8A5;" />

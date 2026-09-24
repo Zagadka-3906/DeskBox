@@ -336,26 +336,44 @@ public sealed partial class DormElectricitySettingsSection : UserControl
             return;
         }
 
-        AppSettings settings = _settings.Settings;
-        settings.DormElectricity.DormElectricityClient = (string)campus.Tag;
-        settings.DormElectricity.DormElectricityBuildingId = (string)building.Tag;
-        settings.DormElectricity.DormElectricityBuildingName = building.Content?.ToString() ?? string.Empty;
-        settings.DormElectricity.DormElectricityFloorId = IsLihuPhaseTwo
-            ? (_floor.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty : string.Empty;
-        settings.DormElectricity.DormElectricityRoomId = IsLihuPhaseTwo
-            ? (_roomSelect.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty : string.Empty;
-        settings.DormElectricity.DormElectricityRoomName = IsLihuPhaseTwo
-            ? (_roomSelect.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? string.Empty
-            : _room.Text.Trim();
-        settings.DormElectricity.DormElectricityUsagePeriod =
-            (_usagePeriod.SelectedItem as ComboBoxItem)?.Tag as string ?? DormElectricityPeriods.SevenDays;
-        settings.DormElectricity.DormElectricityPaymentPeriod =
-            (_paymentPeriod.SelectedItem as ComboBoxItem)?.Tag as string ?? DormElectricityPeriods.OneYear;
+        bool lake = IsLihuPhaseTwo;
+        var location = new DormElectricityLocation(
+            (string)campus.Tag,
+            (string)building.Tag,
+            building.Content?.ToString() ?? string.Empty,
+            lake ? (_roomSelect.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? string.Empty
+                : _room.Text.Trim(),
+            lake ? (_floor.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty : string.Empty,
+            lake ? (_roomSelect.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty : string.Empty);
+        Control[] inputs = [_campus, _building, _floor, _roomSelect, _room, _usagePeriod, _paymentPeriod];
+        bool[] enabled = inputs.Select(input => input.IsEnabled).ToArray();
+        foreach (Control input in inputs) input.IsEnabled = false;
         _save.IsEnabled = false;
+        _status.Text = T("DormElectricity.Refreshing");
         try
         {
+            await _service.ValidateLocationAsync(location);
+            AppSettings settings = _settings.Settings;
+            settings.DormElectricity.DormElectricityClient = location.Client;
+            settings.DormElectricity.DormElectricityBuildingId = location.BuildingId;
+            settings.DormElectricity.DormElectricityBuildingName = location.BuildingName;
+            settings.DormElectricity.DormElectricityFloorId = location.FloorId;
+            settings.DormElectricity.DormElectricityRoomId = location.RoomId;
+            settings.DormElectricity.DormElectricityRoomName = location.RoomName;
+            settings.DormElectricity.DormElectricityUsagePeriod =
+                (_usagePeriod.SelectedItem as ComboBoxItem)?.Tag as string ?? DormElectricityPeriods.SevenDays;
+            settings.DormElectricity.DormElectricityPaymentPeriod =
+                (_paymentPeriod.SelectedItem as ComboBoxItem)?.Tag as string ?? DormElectricityPeriods.OneYear;
             bool saved = await _settings.SaveCheckedAsync();
             _status.Text = T(saved ? "DormElectricity.Saved" : "DormElectricity.SaveFailed");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _status.Text = ex.Message;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _status.Text = T("DormElectricity.NetworkError");
         }
         catch (Exception ex)
         {
@@ -364,6 +382,7 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         }
         finally
         {
+            for (int index = 0; index < inputs.Length; index++) inputs[index].IsEnabled = enabled[index];
             _save.IsEnabled = true;
         }
     }
