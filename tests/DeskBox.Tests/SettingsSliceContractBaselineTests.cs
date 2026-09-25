@@ -253,7 +253,14 @@ public sealed class SettingsSliceContractBaselineTests
             "dormElectricityRoomId",
             "dormElectricityRoomName",
             "dormElectricityUsagePeriod",
-            "dormElectricityPaymentPeriod"
+            "dormElectricityPaymentPeriod",
+            "dormElectricityServerChanDailyEnabled",
+            "dormElectricityServerChanLowEnabled",
+            "dormElectricityServerChanHour",
+            "dormElectricityServerChanMinute",
+            "dormElectricityServerChanLowThresholdKwh",
+            "dormElectricityServerChanLastDailyStamp",
+            "dormElectricityServerChanLastLowStamp"
         ], actual.Skip(ExpectedMemberOrder.Length));
     }
 

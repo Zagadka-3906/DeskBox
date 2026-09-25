@@ -1000,6 +1000,7 @@ public partial class App : Application
             SettingsService.SettingsChanged += OnBackupSettingsChanged;
             SettingsService.SettingsChanged += OnMaterialCapabilitySettingsChanged;
             RunOptionalStartupStep("automatic-backup-timer", StartAutomaticBackupTimer);
+            RunOptionalStartupStep("dorm-notification-timer", StartDormNotificationTimer);
             string requestedCornerPreference = SettingsService.Settings.WidgetCornerPreference;
             string effectiveCornerPreference =
                 WindowsCompatibilityService.ResolveEffectiveWidgetCornerPreference(
@@ -4579,6 +4580,7 @@ public partial class App : Application
         DesktopDoubleClickActivationService?.Dispose();
         DesktopDoubleClickActivationService = null;
         WidgetManager?.CloseAll();
+        StopDormNotificationTimer();
         await SettingsService.FlushPendingSaveAsync(notifySubscribers: false);
         SettingsService.PersistenceFailed -= OnSettingsPersistenceFailed;
         _nativeNotificationService?.Dispose();

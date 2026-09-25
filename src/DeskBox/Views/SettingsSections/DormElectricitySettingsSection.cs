@@ -54,6 +54,7 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         root.Children.Add(CreateField(_paymentPeriodLabel, _paymentPeriod));
         root.Children.Add(_save);
         root.Children.Add(_status);
+        root.Children.Add(CreateNotificationSettingsView());
         Content = root;
         _campus.SelectionChanged += Campus_SelectionChanged;
         _building.SelectionChanged += Building_SelectionChanged;
@@ -77,6 +78,7 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         }
         _localization.LanguageChanged += Localization_LanguageChanged;
         UpdateLabels();
+        InitializeNotificationSettings();
     }
 
     public async Task RefreshFromSettingsAsync()
@@ -113,6 +115,7 @@ public sealed partial class DormElectricitySettingsSection : UserControl
             await LoadFloorsAsync(settings.DormElectricity.DormElectricityFloorId);
             await LoadRoomsAsync(settings.DormElectricity.DormElectricityRoomId);
         }
+        await RefreshNotificationSettingsAsync(settings.DormElectricity);
     }
 
     private static StackPanel CreateField(TextBlock label, Control input)
@@ -146,6 +149,7 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         }
         _save.Content = T("DormElectricity.Save");
         _room.PlaceholderText = T("DormElectricity.RoomPlaceholder");
+        UpdateNotificationLabels();
     }
 
     private async void Campus_SelectionChanged(object sender, SelectionChangedEventArgs e)

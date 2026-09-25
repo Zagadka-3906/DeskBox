@@ -11,4 +11,11 @@ public sealed class DormElectricitySettingsSlice
     public string DormElectricityRoomName { get; set; } = string.Empty;
     public string DormElectricityUsagePeriod { get; set; } = DormElectricityPeriods.SevenDays;
     public string DormElectricityPaymentPeriod { get; set; } = DormElectricityPeriods.OneYear;
+    public bool DormElectricityServerChanDailyEnabled { get; set; } = true;
+    public bool DormElectricityServerChanLowEnabled { get; set; } = true;
+    public int DormElectricityServerChanHour { get; set; } = 9;
+    public int DormElectricityServerChanMinute { get; set; }
+    public double DormElectricityServerChanLowThresholdKwh { get; set; } = 20;
+    public string DormElectricityServerChanLastDailyStamp { get; set; } = string.Empty;
+    public string DormElectricityServerChanLastLowStamp { get; set; } = string.Empty;
 }

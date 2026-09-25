@@ -2,7 +2,7 @@
 
 > **非官方发行版。** 本分支基于 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox) 1.5.5，由 [Zagadka-3906](https://github.com/Zagadka-3906) 维护，增加深圳大学宿舍用电格子。此扩展版并非原作者发布或维护。
 
-[下载 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.3/DeskBox_DormElectricity_1.5.5_dorm.3_x64.exe) · [查看发行说明](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.3) · [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.3/DeskBox_DormElectricity_1.5.5_dorm.3_x64.exe.sha256)
+[下载 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.4/DeskBox_DormElectricity_1.5.5_dorm.4_x64.exe) · [查看发行说明](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.4) · [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.4/DeskBox_DormElectricity_1.5.5_dorm.4_x64.exe.sha256)
 
 ## 宿舍用电格子
 
@@ -12,6 +12,7 @@
 - 每日用电量按格子的长宽比例竖排或横排；横排时鼠标滚轮可控制横向滚动。
 - 三点菜单提供刷新和设置选项。格子放大后仍显示记录列表。
 - 保存设置时检查所选房间；查询失败时显示错误，不沿用上一个房间的电量。
+- 可在格子设置中填写 Server 酱 Turbo SendKey，设置每日汇报时间与低电量阈值，并向微信发送测试消息。SendKey 保存在 Windows 凭据库，不写入设置文件。软件需要保持运行并能访问学校内网。
 
 ## 安装与更新
 

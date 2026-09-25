@@ -745,4 +745,18 @@ public class AppSettings
     public string DormElectricityUsagePeriod { get => DormElectricity.DormElectricityUsagePeriod; set => DormElectricity.DormElectricityUsagePeriod = value; }
 
     public string DormElectricityPaymentPeriod { get => DormElectricity.DormElectricityPaymentPeriod; set => DormElectricity.DormElectricityPaymentPeriod = value; }
+
+    public bool DormElectricityServerChanDailyEnabled { get => DormElectricity.DormElectricityServerChanDailyEnabled; set => DormElectricity.DormElectricityServerChanDailyEnabled = value; }
+
+    public bool DormElectricityServerChanLowEnabled { get => DormElectricity.DormElectricityServerChanLowEnabled; set => DormElectricity.DormElectricityServerChanLowEnabled = value; }
+
+    public int DormElectricityServerChanHour { get => DormElectricity.DormElectricityServerChanHour; set => DormElectricity.DormElectricityServerChanHour = value; }
+
+    public int DormElectricityServerChanMinute { get => DormElectricity.DormElectricityServerChanMinute; set => DormElectricity.DormElectricityServerChanMinute = value; }
+
+    public double DormElectricityServerChanLowThresholdKwh { get => DormElectricity.DormElectricityServerChanLowThresholdKwh; set => DormElectricity.DormElectricityServerChanLowThresholdKwh = value; }
+
+    public string DormElectricityServerChanLastDailyStamp { get => DormElectricity.DormElectricityServerChanLastDailyStamp; set => DormElectricity.DormElectricityServerChanLastDailyStamp = value; }
+
+    public string DormElectricityServerChanLastLowStamp { get => DormElectricity.DormElectricityServerChanLastLowStamp; set => DormElectricity.DormElectricityServerChanLastLowStamp = value; }
 }
