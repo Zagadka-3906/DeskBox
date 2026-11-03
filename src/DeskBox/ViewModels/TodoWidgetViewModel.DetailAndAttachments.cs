@@ -333,24 +333,6 @@ public sealed partial class TodoWidgetViewModel
         return addedCount;
     }
 
-    public async Task<TodoAttachmentViewModel?> AddAttachmentStreamAsync(
-        string itemId,
-        Stream stream,
-        string? fileName)
-    {
-        TodoItemViewModel? item = FindItem(itemId);
-        if (item is null)
-        {
-            return null;
-        }
-
-        TodoAttachment? attachment = await AttachmentStorageService.SaveStreamAsync(
-            stream,
-            fileName,
-            GetManagedAttachmentDirectory(itemId));
-        return attachment is null ? null : await AddAttachmentAsync(item, attachment);
-    }
-
     private async Task<TodoAttachmentViewModel?> AddAttachmentAsync(
         TodoItemViewModel item,
         TodoAttachment attachment)
@@ -371,7 +353,10 @@ public sealed partial class TodoWidgetViewModel
         return attachmentViewModel;
     }
 
-    public async Task<bool> DeleteAttachmentAsync(string itemId, string attachmentId)
+    public async Task<bool> DeleteAttachmentAsync(
+        string itemId,
+        string attachmentId,
+        Func<string, Task<bool>>? recycleFileAsync = null)
     {
         TodoItemViewModel? item = FindItem(itemId);
         TodoAttachmentViewModel? attachment = item?.Attachments.FirstOrDefault(entry =>
@@ -388,14 +373,12 @@ public sealed partial class TodoWidgetViewModel
         await SaveAsync();
         if (attachment.Attachment.IsManagedCopy && File.Exists(attachment.FilePath))
         {
-            try
-            {
-                File.Delete(attachment.FilePath);
-            }
-            catch (Exception ex)
-            {
-                App.Log($"[Todo] Failed to delete managed attachment '{attachment.FilePath}': {ex.Message}");
-            }
+            // Only files inside the managed attachment tree are eligible for
+            // deletion, and they go through the recycle kernel.
+            await AttachmentStorageService.TryDeleteManagedCopyAsync(
+                attachment.FilePath,
+                _store.AttachmentDirectory,
+                recycleFileAsync);
         }
         return true;
     }

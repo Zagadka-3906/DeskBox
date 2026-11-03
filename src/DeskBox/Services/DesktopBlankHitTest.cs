@@ -10,7 +10,10 @@ namespace DeskBox.Services;
 /// <summary>
 /// Distinguishes Explorer's blank desktop surface from desktop icons. The
 /// list-view hit test uses memory allocated in Explorer because LVM_HITTEST
-/// contains a process-local pointer and is not marshalled by USER32.
+/// contains a process-local pointer and is not marshalled by USER32. Class
+/// matches are additionally restricted to the shell process: the same window
+/// classes also appear inside third-party applications, and their blank areas
+/// must not trigger desktop gestures.
 /// </summary>
 internal static partial class DesktopBlankHitTest
 {
@@ -56,14 +59,78 @@ internal static partial class DesktopBlankHitTest
             if (string.Equals(className, "Progman", StringComparison.Ordinal) ||
                 string.Equals(className, "WorkerW", StringComparison.Ordinal))
             {
-                return true;
+                return IsDesktopHostWindow(current);
             }
 
             current = Win32Helper.GetParent(current);
         }
 
         return listView != IntPtr.Zero &&
+               IsShellDesktopListView(listView) &&
                IsBlankListViewPoint(listView, screenPoint);
+    }
+
+    /// <summary>
+    /// Confirms a SysListView32 window belongs to the shell process. The class
+    /// name alone is not proof: third-party applications host the same
+    /// list-view class, so their blank areas would be mistaken for the
+    /// desktop. Process ids are compared instead of process names because a
+    /// replacement shell keeps its identity in the window registered via
+    /// GetShellWindow. The class-only verdict is retained while Explorer is
+    /// restarting and GetShellWindow temporarily returns zero.
+    /// </summary>
+    internal static bool IsShellDesktopListView(IntPtr listView)
+    {
+        if (listView == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        IntPtr shellWindow = Win32Helper.GetShellWindow();
+        if (shellWindow == IntPtr.Zero)
+        {
+            return true;
+        }
+
+        Win32Helper.GetWindowThreadProcessId(shellWindow, out uint shellProcessId);
+        Win32Helper.GetWindowThreadProcessId(listView, out uint listProcessId);
+        return shellProcessId == 0 ||
+               listProcessId == 0 ||
+               shellProcessId == listProcessId;
+    }
+
+    /// <summary>
+    /// Confirms a Progman/WorkerW window in the ancestor chain belongs to the
+    /// shell-owned desktop surface. Windows hosts that surface on a mix of
+    /// Progman and top-level WorkerW windows, and wallpaper engines parent
+    /// their content into it from a separate process, so the process id of the
+    /// root window is compared with the shell window's instead of the hit
+    /// window's own: content parented into the desktop stays part of it while
+    /// third-party WorkerW windows outside the shell process are rejected.
+    /// The class-only verdict is retained while Explorer is restarting and
+    /// GetShellWindow temporarily returns zero.
+    /// </summary>
+    internal static bool IsDesktopHostWindow(IntPtr window)
+    {
+        if (window == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        IntPtr shellWindow = Win32Helper.GetShellWindow();
+        if (shellWindow == IntPtr.Zero)
+        {
+            return true;
+        }
+
+        IntPtr root = Win32Helper.GetAncestor(window, Win32Helper.GA_ROOT);
+        Win32Helper.GetWindowThreadProcessId(shellWindow, out uint shellProcessId);
+        Win32Helper.GetWindowThreadProcessId(
+            root == IntPtr.Zero ? window : root,
+            out uint rootProcessId);
+        return shellProcessId == 0 ||
+               rootProcessId == 0 ||
+               shellProcessId == rootProcessId;
     }
 
     private static bool IsBlankListViewPoint(
@@ -82,7 +149,7 @@ internal static partial class DesktopBlankHitTest
             return false;
         }
 
-        IntPtr process = OpenProcess(
+        IntPtr process = RemoteProcessMemoryNativeMethods.OpenProcess(
             ProcessVmOperation | ProcessVmRead | ProcessVmWrite,
             false,
             processId);
@@ -106,14 +173,14 @@ internal static partial class DesktopBlankHitTest
             };
             Marshal.StructureToPtr(hitTest, localBuffer, false);
 
-            remoteBuffer = VirtualAllocEx(
+            remoteBuffer = RemoteProcessMemoryNativeMethods.VirtualAllocEx(
                 process,
                 IntPtr.Zero,
                 (UIntPtr)structureSize,
                 MemCommit | MemReserve,
                 PageReadWrite);
             if (remoteBuffer == IntPtr.Zero ||
-                !WriteProcessMemory(
+                !RemoteProcessMemoryNativeMethods.WriteProcessMemory(
                     process,
                     remoteBuffer,
                     localBuffer,
@@ -132,7 +199,7 @@ internal static partial class DesktopBlankHitTest
                 80,
                 out _);
             if (delivered == IntPtr.Zero ||
-                !ReadProcessMemory(
+                !RemoteProcessMemoryNativeMethods.ReadProcessMemory(
                     process,
                     remoteBuffer,
                     localBuffer,
@@ -149,7 +216,7 @@ internal static partial class DesktopBlankHitTest
         {
             if (remoteBuffer != IntPtr.Zero)
             {
-                VirtualFreeEx(process, remoteBuffer, UIntPtr.Zero, MemRelease);
+                RemoteProcessMemoryNativeMethods.VirtualFreeEx(process, remoteBuffer, UIntPtr.Zero, MemRelease);
             }
 
             if (localBuffer != IntPtr.Zero)
@@ -157,7 +224,7 @@ internal static partial class DesktopBlankHitTest
                 Marshal.FreeHGlobal(localBuffer);
             }
 
-            CloseHandle(process);
+            RemoteProcessMemoryNativeMethods.CloseHandle(process);
         }
     }
 
@@ -181,47 +248,6 @@ internal static partial class DesktopBlankHitTest
         public int GroupIndex;
     }
 
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial IntPtr OpenProcess(
-        uint desiredAccess,
-        [MarshalAs(UnmanagedType.Bool)] bool inheritHandle,
-        uint processId);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial IntPtr VirtualAllocEx(
-        IntPtr process,
-        IntPtr address,
-        UIntPtr size,
-        uint allocationType,
-        uint protect);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool VirtualFreeEx(
-        IntPtr process,
-        IntPtr address,
-        UIntPtr size,
-        uint freeType);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool WriteProcessMemory(
-        IntPtr process,
-        IntPtr baseAddress,
-        IntPtr buffer,
-        UIntPtr size,
-        out UIntPtr written);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool ReadProcessMemory(
-        IntPtr process,
-        IntPtr baseAddress,
-        IntPtr buffer,
-        UIntPtr size,
-        out UIntPtr read);
-
-    [LibraryImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool CloseHandle(IntPtr handle);
+    // kernel32 remote-process-memory entry points live in
+    // DeskBox.Platform.RemoteProcessMemoryNativeMethods.
 }

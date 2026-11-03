@@ -12,7 +12,20 @@ using Windows.UI;
 
 namespace DeskBox.Controls.WidgetContents;
 
-public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetContent, IDisposable
+public sealed class DormElectricityWidgetContent : WidgetContentAdapterBase
+{
+    public DormElectricityWidgetContent(WidgetConfig config, LocalizationService localization, SettingsService? settings)
+        : base(config, () => new DormElectricityWidgetView(config, localization, settings)) { }
+
+    public override Task InitializeAsync() => RefreshAsync();
+    public override Task RefreshAsync() => ((DormElectricityWidgetView)View).RefreshAsync();
+    public override void OnWindowVisibilityChanged(bool visible) =>
+        (MaterializedView as DormElectricityWidgetView)?.OnWindowVisibilityChanged(visible);
+    protected override void Dispose(bool disposing) =>
+        (MaterializedView as DormElectricityWidgetView)?.Dispose();
+}
+
+internal sealed partial class DormElectricityWidgetView : UserControl, IDisposable
 {
     private readonly LocalizationService _localization;
     private readonly SettingsService? _settings;
@@ -44,7 +57,7 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
     private bool _pendingRefresh;
     private bool _disposed;
 
-    public DormElectricityWidgetContent(
+    public DormElectricityWidgetView(
         WidgetConfig config,
         LocalizationService localization,
         SettingsService? settings)
@@ -74,7 +87,6 @@ public sealed partial class DormElectricityWidgetContent : UserControl, IWidgetC
     public WidgetConfig Config { get; }
     public string WidgetId => Config.Id;
     public WidgetKind WidgetKind => Config.WidgetKind;
-    public FrameworkElement View => this;
 
     public Task InitializeAsync() => RefreshAsync();
 

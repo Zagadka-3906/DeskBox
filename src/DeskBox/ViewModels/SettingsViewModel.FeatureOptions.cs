@@ -1,8 +1,9 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Collections.ObjectModel;
 using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DeskBox.Contracts;
 using DeskBox.Helpers;
 using DeskBox.Models;
 using DeskBox.Services;
@@ -14,621 +15,101 @@ namespace DeskBox.ViewModels;
 
 public partial class SettingsViewModel
 {
-    public string SelectedTodoLayoutMode
-    {
-        get => _selectedTodoLayoutMode;
-        set
-        {
-            string normalized = SettingsService.NormalizeTodoLayoutMode(value);
-            if (!SetProperty(ref _selectedTodoLayoutMode, normalized))
-            {
-                return;
-            }
+    public string[] AvailableLanguages { get; } =
+    [
+        SettingsService.LanguageSystem,
+        SettingsService.LanguageChinese,
+        SettingsService.LanguageChineseTraditional,
+        SettingsService.LanguageEnglish,
+        LocalizationService.LanguageJapanese,
+        LocalizationService.LanguageGerman,
+        LocalizationService.LanguagePortuguese,
+        LocalizationService.LanguageHindi,
+        LocalizationService.LanguageSpanish,
+        LocalizationService.LanguageFrench,
+        LocalizationService.LanguageArabic,
+        LocalizationService.LanguageBengali,
+        LocalizationService.LanguageRussian,
+        SettingsService.LanguageKorean
+    ];
+    public string[] AvailableLanguageDisplayNames => _cachedLanguageDisplayNames ??= AvailableLanguages.Select(_localizationService.GetLanguageDisplayName).ToArray();
 
-            OnPropertyChanged(nameof(TodoLayoutSummaryText));
-            OnPropertyChanged(nameof(TodoWideOptionsVisibility));
-
-            bool canUseWideDetail = normalized != SettingsService.TodoLayoutModeSinglePane;
-            if (TodoUseWideDetailPane != canUseWideDetail)
-            {
-                bool wasApplyingSnapshot = _isApplyingSettingsSnapshot;
-                _isApplyingSettingsSnapshot = true;
-                try
-                {
-                    TodoUseWideDetailPane = canUseWideDetail;
-                }
-                finally
-                {
-                    _isApplyingSettingsSnapshot = wasApplyingSnapshot;
-                }
-            }
-
-            if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-            {
-                return;
-            }
-
-            _settingsService.Settings.TodoLayoutMode = normalized;
-            _settingsService.Settings.TodoUseWideDetailPane = canUseWideDetail;
-            _settingsService.SaveDebounced();
-        }
-    }
-
-    public string SelectedTodoNewTaskPosition
-    {
-        get => _selectedTodoNewTaskPosition;
-        set
-        {
-            if (!SetProperty(ref _selectedTodoNewTaskPosition, NormalizeTodoNewTaskPosition(value)))
-            {
-                return;
-            }
-
-            OnPropertyChanged(nameof(SelectedTodoNewTaskPositionText));
-            RefreshTodoContentPresentation();
-
-            if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-            {
-                return;
-            }
-
-            _settingsService.Settings.TodoNewTaskPosition = _selectedTodoNewTaskPosition;
-            _settingsService.SaveDebounced();
-        }
-    }
-
-    public string SelectedTodoNewTaskPositionText => GetTodoNewTaskPositionDisplayName(SelectedTodoNewTaskPosition);
-
-    public string SelectedAttachmentStorageMode
-    {
-        get => _selectedAttachmentStorageMode;
-        set
-        {
-            string normalized = SettingsService.NormalizeAttachmentStorageMode(value);
-            if (!SetProperty(ref _selectedAttachmentStorageMode, normalized))
-            {
-                return;
-            }
-
-            if (!_isRestoringDefaults && !_isApplyingSettingsSnapshot)
-            {
-                _settingsService.Settings.AttachmentStorageMode = normalized;
-                _settingsService.SaveDebounced();
-            }
-
-        }
-    }
-
-
-    public string SelectedManagedDropAction
-    {
-        get => _selectedManagedDropAction;
-        set
-        {
-            string normalized = value switch
-            {
-                SettingsService.ManagedDropActionCopy =>
-                    SettingsService.ManagedDropActionCopy,
-                SettingsService.ManagedDropActionFollowWindows =>
-                    SettingsService.ManagedDropActionFollowWindows,
-                _ => SettingsService.ManagedDropActionMove
-            };
-            if (!SetProperty(ref _selectedManagedDropAction, normalized))
-            {
-                return;
-            }
-
-            if (!_isRestoringDefaults && !_isApplyingSettingsSnapshot)
-            {
-                _settingsService.Settings.ManagedDropAction = normalized;
-                _settingsService.SaveDebounced();
-            }
-
-        }
-    }
-
-    public string SelectedFileWidgetFolderOpenBehavior
-    {
-        get => _selectedFileWidgetFolderOpenBehavior;
-        set
-        {
-            string normalized =
-                FileWidgetFolderOpenBehaviorNames.NormalizeGlobal(value);
-            if (!SetProperty(
-                    ref _selectedFileWidgetFolderOpenBehavior,
-                    normalized))
-            {
-                return;
-            }
-
-            if (_isRestoringDefaults)
-            {
-                return;
-            }
-
-            _settingsService.Settings.FileWidgetFolderOpenBehavior = normalized;
-            _settingsService.SaveDebounced();
-        }
-    }
-
-    public IReadOnlyList<SettingsOption>
-        AvailableFileWidgetFolderOpenBehaviorOptions =>
-        WrapOptions(
-        [
-            new(
-                FileWidgetFolderOpenBehaviorNames.Explorer,
-                _localizationService.T(
-                    "Settings.FileWidget.FolderOpenBehavior.Explorer")),
-            new(
-                FileWidgetFolderOpenBehaviorNames.Embedded,
-                _localizationService.T(
-                    "Settings.FileWidget.FolderOpenBehavior.Embedded"))
-        ]);
-
-    public object[] AvailableFileWidgetFolderOpenBehaviorOptionItems =>
-        AvailableFileWidgetFolderOpenBehaviorOptions.Cast<object>().ToArray();
-
-
-    public string SelectedQuickCaptureDefaultView
-    {
-        get => _selectedQuickCaptureDefaultView;
-        set
-        {
-            if (!SetProperty(ref _selectedQuickCaptureDefaultView, NormalizeQuickCaptureDefaultView(value)))
-            {
-                return;
-            }
-
-            OnPropertyChanged(nameof(SelectedQuickCaptureDefaultViewText));
-            RefreshQuickCaptureTabsPresentation();
-
-            if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-            {
-                return;
-            }
-
-            EnsureQuickCaptureTabEnabled(_selectedQuickCaptureDefaultView);
-            _settingsService.Settings.QuickCaptureDefaultView = _selectedQuickCaptureDefaultView;
-            _settingsService.SaveDebounced();
-        }
-    }
-
-    public string SelectedQuickCaptureDefaultViewText => GetQuickCaptureDefaultViewDisplayName(SelectedQuickCaptureDefaultView);
-
-    public string SelectedQuickCaptureTabStyle
-    {
-        get => _selectedQuickCaptureTabStyle;
-        set
-        {
-            if (!SetProperty(ref _selectedQuickCaptureTabStyle, SettingsService.NormalizeWidgetTabStyle(value)))
-            {
-                return;
-            }
-
-            OnPropertyChanged(nameof(SelectedQuickCaptureTabStyleText));
-            OnPropertyChanged(nameof(QuickCaptureTabStyleIndex));
-
-            if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-            {
-                return;
-            }
-
-            _settingsService.Settings.QuickCaptureTabStyle = _selectedQuickCaptureTabStyle;
-            _settingsService.SaveDebounced();
-        }
-    }
-
-    public string SelectedQuickCaptureTabStyleText => GetWidgetTabStyleDisplayName(SelectedQuickCaptureTabStyle);
-
-    public string SelectedTodoDefaultFilter
-    {
-        get => _selectedTodoDefaultFilter;
-        set
-        {
-            if (!SetProperty(ref _selectedTodoDefaultFilter, NormalizeTodoDefaultFilter(value)))
-            {
-                return;
-            }
-
-            OnPropertyChanged(nameof(SelectedTodoDefaultFilterText));
-            RefreshTodoTabsPresentation();
-
-            if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-            {
-                return;
-            }
-
-            EnsureTodoTabEnabled(_selectedTodoDefaultFilter);
-            _settingsService.Settings.TodoDefaultFilter = _selectedTodoDefaultFilter;
-            _settingsService.SaveDebounced();
-        }
-    }
-
-    public string SelectedTodoDefaultFilterText => GetTodoDefaultFilterDisplayName(SelectedTodoDefaultFilter);
-
-    private void EnsureQuickCaptureTabEnabled(string view)
-    {
-        switch (view)
-        {
-            case SettingsService.QuickCaptureDefaultViewPinned:
-                QuickCaptureShowPinnedTab = true;
-                break;
-            case SettingsService.QuickCaptureDefaultViewRecent:
-                QuickCaptureShowRecentTab = true;
-                break;
-            default:
-                QuickCaptureShowRecordsTab = true;
-                break;
-        }
-    }
-
-    private void EnsureTodoTabEnabled(string filter)
-    {
-        switch (filter)
-        {
-            case SettingsService.TodoDefaultFilterActive:
-                TodoShowActiveTab = true;
-                break;
-            case SettingsService.TodoDefaultFilterToday:
-                TodoShowTodayTab = true;
-                break;
-            case SettingsService.TodoDefaultFilterThisWeek:
-                TodoShowThisWeekTab = true;
-                break;
-            case SettingsService.TodoDefaultFilterThisMonth:
-                TodoShowThisMonthTab = true;
-                break;
-            case SettingsService.TodoDefaultFilterImportant:
-                TodoShowImportantTab = true;
-                break;
-            case SettingsService.TodoDefaultFilterCompleted:
-                TodoShowCompletedTab = true;
-                break;
-            default:
-                TodoShowAllTab = true;
-                break;
-        }
-    }
-
-    public string SelectedTodoTabStyle
-    {
-        get => _selectedTodoTabStyle;
-        set
-        {
-            if (!SetProperty(ref _selectedTodoTabStyle, SettingsService.NormalizeWidgetTabStyle(value)))
-            {
-                return;
-            }
-
-            OnPropertyChanged(nameof(SelectedTodoTabStyleText));
-            OnPropertyChanged(nameof(TodoTabStyleIndex));
-
-            if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-            {
-                return;
-            }
-
-            _settingsService.Settings.TodoTabStyle = _selectedTodoTabStyle;
-            _settingsService.SaveDebounced();
-        }
-    }
-
-    public string SelectedTodoTabStyleText => GetWidgetTabStyleDisplayName(SelectedTodoTabStyle);
-
-    public int SelectedTodoReminderOffsetMinutes
-    {
-        get => _selectedTodoReminderOffsetMinutes;
-        set
-        {
-            int normalizedValue = SettingsService.NormalizeTodoReminderOffsetMinutes(value);
-            if (!SetProperty(ref _selectedTodoReminderOffsetMinutes, normalizedValue))
-            {
-                return;
-            }
-
-            OnPropertyChanged(nameof(SelectedTodoReminderOffsetMinutesText));
-            OnPropertyChanged(nameof(TodoReminderSummaryText));
-
-            if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-            {
-                return;
-            }
-
-            _settingsService.Settings.TodoDefaultReminderOffsetMinutes = normalizedValue;
-            _settingsService.SaveDebounced();
-        }
-    }
-
-    public string SelectedTodoReminderOffsetMinutesText => GetTodoReminderOffsetDisplayName(SelectedTodoReminderOffsetMinutes);
-
-    public string SelectedMusicDisplayMode
-    {
-        get => _selectedMusicDisplayMode;
-        set
-        {
-            string normalizedValue = SettingsService.NormalizeMusicDisplayMode(value);
-            if (!SetProperty(ref _selectedMusicDisplayMode, normalizedValue))
-            {
-                return;
-            }
-
-            OnPropertyChanged(nameof(SelectedMusicDisplayModeText));
-            if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-            {
-                return;
-            }
-
-            _settingsService.Settings.MusicDisplayMode = normalizedValue;
-            _settingsService.SaveDebounced();
-        }
-    }
-
-    public string SelectedMusicDisplayModeText => GetMusicDisplayModeDisplayName(SelectedMusicDisplayMode);
-
-    public string AccentColorHex
-    {
-        get => _accentColorHex;
-        private set => SetProperty(ref _accentColorHex, value);
-    }
-
-    public Color SelectedAccentColor
-    {
-        get => _currentAccentColor;
-        set
-        {
-            if (_currentAccentColor.Equals(value))
-            {
-                return;
-            }
-
-            SetCustomAccentColor(value);
-        }
-    }
-
-    public string ManagedStorageRootPath
+    // Host-side working state for the managed-storage section. The XAML
+    // binding surface lives on the managed-storage editor (section-level
+    // DataContext switch); the shell keeps the path display state it needs
+    // for the folder picker / migration / quick-access chains and pushes the
+    // quick-access presentation onto the editor whenever the state changes.
+    internal string ManagedStorageRootPath
     {
         get => _managedStorageRootPath;
         private set => SetProperty(ref _managedStorageRootPath, value);
     }
 
-    public QuickAccessPinState ManagedStorageQuickAccessPinState
+    internal QuickAccessPinState ManagedStorageQuickAccessPinState
     {
         get => _quickAccessPinState;
         private set
         {
-            if (!SetProperty(ref _quickAccessPinState, value))
+            if (SetProperty(ref _quickAccessPinState, value))
             {
-                return;
+                PushQuickAccessPresentation();
             }
-
-            OnPropertyChanged(nameof(QuickAccessStatusText));
-            OnPropertyChanged(nameof(PinQuickAccessButtonText));
-            OnPropertyChanged(nameof(PinQuickAccessToolTipText));
-            OnPropertyChanged(nameof(ShouldUnpinManagedStorageFromQuickAccess));
         }
     }
 
-    public bool IsQuickAccessBusy
+    internal bool IsQuickAccessBusy
     {
         get => _isQuickAccessBusy;
         private set
         {
-            if (!SetProperty(ref _isQuickAccessBusy, value))
+            if (SetProperty(ref _isQuickAccessBusy, value))
             {
-                return;
+                PushQuickAccessPresentation();
             }
-
-            OnPropertyChanged(nameof(QuickAccessStatusText));
-            OnPropertyChanged(nameof(PinQuickAccessButtonText));
-            OnPropertyChanged(nameof(PinQuickAccessToolTipText));
-            OnPropertyChanged(nameof(CanInvokeQuickAccessAction));
         }
     }
 
-    public bool CanInvokeQuickAccessAction => !IsQuickAccessBusy;
-
-    public string QuickAccessStatusText => IsQuickAccessBusy
-        ? _localizationService.T("Settings.ManagedPath.QuickAccessStatusUpdating")
-        : ManagedStorageQuickAccessPinState switch
+    private void PushQuickAccessPresentation()
     {
-        QuickAccessPinState.Pinned => _localizationService.T("Settings.ManagedPath.QuickAccessStatusPinned"),
-        QuickAccessPinState.NotPinned => _localizationService.T("Settings.ManagedPath.QuickAccessStatusNotPinned"),
-        _ => _localizationService.T("Settings.ManagedPath.QuickAccessStatusUnknown")
-    };
+        bool busy = IsQuickAccessBusy;
+        bool pinned = ManagedStorageQuickAccessPinState == QuickAccessPinState.Pinned;
+        _managedStorageSettings.UpdateQuickAccessPresentation(new QuickAccessPresentationSettings(
+            CanInvoke: !busy,
+            ShouldUnpin: pinned,
+            StatusText: busy
+                ? _localizationService.T("Settings.ManagedPath.QuickAccessStatusUpdating")
+                : ManagedStorageQuickAccessPinState switch
+                {
+                    QuickAccessPinState.Pinned => _localizationService.T("Settings.ManagedPath.QuickAccessStatusPinned"),
+                    QuickAccessPinState.NotPinned => _localizationService.T("Settings.ManagedPath.QuickAccessStatusNotPinned"),
+                    _ => _localizationService.T("Settings.ManagedPath.QuickAccessStatusUnknown")
+                },
+            ButtonText: busy
+                ? _localizationService.T("Settings.ManagedPath.QuickAccessUpdating")
+                : pinned
+                    ? _localizationService.T("Settings.ManagedPath.UnpinQuickAccess")
+                    : _localizationService.T("Settings.ManagedPath.PinQuickAccess"),
+            ToolTipText: busy
+                ? _localizationService.T("Settings.ManagedPath.QuickAccessUpdatingTooltip")
+                : pinned
+                    ? _localizationService.T("Settings.ManagedPath.UnpinQuickAccessTooltip")
+                    : _localizationService.T("Settings.ManagedPath.PinQuickAccessTooltip")));
+    }
 
-    public string PinQuickAccessButtonText => IsQuickAccessBusy
-        ? _localizationService.T("Settings.ManagedPath.QuickAccessUpdating")
-        : ManagedStorageQuickAccessPinState == QuickAccessPinState.Pinned
-            ? _localizationService.T("Settings.ManagedPath.UnpinQuickAccess")
-            : _localizationService.T("Settings.ManagedPath.PinQuickAccess");
-
-    public string PinQuickAccessToolTipText => IsQuickAccessBusy
-        ? _localizationService.T("Settings.ManagedPath.QuickAccessUpdatingTooltip")
-        : ManagedStorageQuickAccessPinState == QuickAccessPinState.Pinned
-            ? _localizationService.T("Settings.ManagedPath.UnpinQuickAccessTooltip")
-            : _localizationService.T("Settings.ManagedPath.PinQuickAccessTooltip");
-
-    public bool ShouldUnpinManagedStorageFromQuickAccess => ManagedStorageQuickAccessPinState == QuickAccessPinState.Pinned;
-
-    public bool GlobalHotkeyEnabled
+    // Host linkage for the interaction editor: the editor owns the hotkey
+    // enable switch's binding surface; the registration state machine stays
+    // on the shell because it reaches the host's hotkey service.
+    private void OnInteractionHotkeyEnabledUserChanged(bool value)
     {
-        get => _globalHotkeyEnabled;
-        set
+        if (_isRestoringDefaults)
         {
-            if (!SetProperty(ref _globalHotkeyEnabled, value))
-            {
-                return;
-            }
-
-            if (_isRestoringDefaults)
-            {
-                return;
-            }
-
-            App.Current?.GlobalHotkeyService?.SetEnabled(value);
-            RefreshGlobalHotkeyStatus();
-            OnPropertyChanged(nameof(CanShowGlobalHotkeyWarning));
+            return;
         }
+
+        App.Current?.GlobalHotkeyService?.SetEnabled(value);
+        RefreshGlobalHotkeyState();
     }
 
-    public string GlobalHotkeyText
-    {
-        get => _globalHotkeyText;
-        private set => SetProperty(ref _globalHotkeyText, value);
-    }
-
-    public string GlobalHotkeyStatusText
-    {
-        get => _globalHotkeyStatusText;
-        private set => SetProperty(ref _globalHotkeyStatusText, value);
-    }
-
-    public string GlobalHotkeyStatusKind
-    {
-        get => _globalHotkeyStatusKind;
-        private set => SetProperty(ref _globalHotkeyStatusKind, value);
-    }
-
-    public string IconSizeValueText => $"{Math.Round(IconSize):0}px";
-    public string WidgetOpacityValueText => $"{Math.Round((1.0 - WidgetOpacity) * 100):0}%";
-
-    /// <summary>
-    /// UI-facing transparency value (inverted from internal WidgetOpacity).
-    /// 0 = fully opaque, 1 = most transparent.  The slider binds to this.
-    /// </summary>
-    public double WidgetTransparency
-    {
-        get => 1.0 - WidgetOpacity;
-        set => WidgetOpacity = 1.0 - Math.Clamp(value, 0.0, 1.0);
-    }
-    public string WidgetMaterialIntensityValueText => $"{Math.Round(WidgetMaterialIntensity * 100):0}%";
-    public string TextSizeValueText => $"{TextSize:0.#}pt";
-    public string LayoutDensityValueText => $"{Math.Round(LayoutDensityScale * 100):0}%";
-    public string HorizontalSpacingValueText => $"{Math.Round(HorizontalSpacingScale * 100):0}%";
-    public string VerticalSpacingValueText => $"{Math.Round(VerticalSpacingScale * 100):0}%";
-    public string FileNameWidthValueText => $"{Math.Round(FileNameWidthScale * 100):0}%";
-    public string WidgetSnapSpacingText => $"{WidgetSnapSpacing:0.#} px";
-    public string DefaultWidthInput
-    {
-        get => FormatNumber(DefaultWidth, 0);
-        set => ApplyNumberInput(value, () => DefaultWidth, next => DefaultWidth = next, SettingsService.MinWidgetWidth, 1200d, 0);
-    }
-
-    public string DefaultHeightInput
-    {
-        get => FormatNumber(DefaultHeight, 0);
-        set => ApplyNumberInput(value, () => DefaultHeight, next => DefaultHeight = next, SettingsService.MinWidgetHeight, 1200d, 0);
-    }
-
-    public string WidgetOpacityPercentInput
-    {
-        get => FormatNumber(WidgetOpacityPercent, 0);
-        set => ApplyNumberInput(value, () => WidgetOpacityPercent, next => WidgetOpacityPercent = next, 0d, 100d, 0);
-    }
-
-    public string IconSizeInput
-    {
-        get => FormatNumber(IconSize, 0);
-        set => ApplyNumberInput(value, () => IconSize, next => IconSize = next, SettingsService.MinIconSize, SettingsService.MaxIconSize, 0);
-    }
-
-    public string TextSizeInput
-    {
-        get => FormatNumber(TextSize, 1);
-        set => ApplyNumberInput(value, () => TextSize, next => TextSize = next, SettingsService.MinTextSize, SettingsService.MaxTextSize, 1);
-    }
-
-    public string LayoutDensityPercentInput
-    {
-        get => FormatNumber(LayoutDensityPercent, 0);
-        set => ApplyNumberInput(value, () => LayoutDensityPercent, next => LayoutDensityPercent = next, 0d, 100d, 0);
-    }
-
-    public string HorizontalSpacingPercentInput
-    {
-        get => FormatNumber(HorizontalSpacingPercent, 0);
-        set => ApplyNumberInput(value, () => HorizontalSpacingPercent, next => HorizontalSpacingPercent = next, 0d, 100d, 0);
-    }
-
-    public string VerticalSpacingPercentInput
-    {
-        get => FormatNumber(VerticalSpacingPercent, 0);
-        set => ApplyNumberInput(value, () => VerticalSpacingPercent, next => VerticalSpacingPercent = next, 0d, 100d, 0);
-    }
-
-    public string FileNameWidthPercentInput
-    {
-        get => FormatNumber(FileNameWidthPercent, 0);
-        set => ApplyNumberInput(value, () => FileNameWidthPercent, next => FileNameWidthPercent = next, 0d, 100d, 0);
-    }
-
-public double WidgetOpacityPercent
-{
-get => Math.Round((1.0 - WidgetOpacity) * 100);
-set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetOpacity, SettingsService.MaxWidgetOpacity);
-}
-
-    public double LayoutDensityPercent
-    {
-        get => Math.Round(LayoutDensityScale * 100);
-        set => LayoutDensityScale = Math.Clamp(value / 100d, SettingsService.MinLayoutDensityScale, SettingsService.MaxLayoutDensityScale);
-    }
-
-    public double HorizontalSpacingPercent
-    {
-        get => Math.Round(HorizontalSpacingScale * 100);
-        set => HorizontalSpacingScale = Math.Clamp(value / 100d, SettingsService.MinSpacingScale, SettingsService.MaxSpacingScale);
-    }
-
-    public double VerticalSpacingPercent
-    {
-        get => Math.Round(VerticalSpacingScale * 100);
-        set => VerticalSpacingScale = Math.Clamp(value / 100d, SettingsService.MinSpacingScale, SettingsService.MaxSpacingScale);
-    }
-
-    public double FileNameWidthPercent
-    {
-        get => Math.Round(FileNameWidthScale * 100);
-        set => FileNameWidthScale = Math.Clamp(value / 100d, SettingsService.MinSpacingScale, SettingsService.MaxSpacingScale);
-    }
-
-    public string AccentColorDescription => UseSystemAccentColor
-        ? _localizationService.T("Settings.Accent.SystemDescription")
-        : _localizationService.T("Settings.Accent.CustomDescription");
-
-    public string GlobalHotkeyDescription => _localizationService.T("Settings.GlobalHotkey.Description");
-    public string GlobalHotkeyWarningText
-    {
-        get
-        {
-            GlobalHotkeyActivation activation = GetCurrentGlobalHotkeyActivation();
-            if (activation.Kind == HotkeyActivationKind.WindowsTap)
-            {
-                return _localizationService.T("Settings.GlobalHotkey.WindowsTapWarning");
-            }
-
-            if (activation.Kind == HotkeyActivationKind.Chord &&
-                activation.Gesture.Modifiers == HotkeyModifierKeys.Alt &&
-                activation.Gesture.VirtualKey == (int)Windows.System.VirtualKey.Space)
-            {
-                return _localizationService.T("Settings.GlobalHotkey.AltSpaceWarning");
-            }
-
-            return _localizationService.T("Settings.GlobalHotkey.ReservedWarning");
-        }
-    }
-
-    public bool CanShowGlobalHotkeyWarning
-    {
-        get
-        {
-            GlobalHotkeyActivation activation = GetCurrentGlobalHotkeyActivation();
-            return GlobalHotkeyEnabled &&
-                   (activation.Kind == HotkeyActivationKind.WindowsTap ||
-                    (activation.Kind == HotkeyActivationKind.Chord &&
-                     GlobalHotkeyService.IsReservedSystemGesture(activation.Gesture)));
-        }
-    }
     public IEnumerable<FeatureWidgetEntry> FeatureWidgetEntries
     {
         get
@@ -644,6 +125,10 @@ set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetO
 
     public bool IsWidgetEnabled(WidgetKind kind)
     {
+        // The Todo switch's state (incl. its pending async transition) is
+        // the section editor's projection (batch 47).
+        if (kind == WidgetKind.Todo) return _todoSettings.Enabled;
+        if (kind == WidgetKind.Search) return _searchFeatureSettings.Enabled;
         return App.Current?.WidgetManager?.IsFeatureWidgetEnabled(kind) ??
                FeatureWidgetSettings.IsEnabled(_settingsService.Settings, kind);
     }
@@ -653,14 +138,21 @@ set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetO
         switch (kind)
         {
             case WidgetKind.QuickCapture:
-                QuickCaptureEnabled = enabled;
+                // The Quick Capture switch's write chain (persist + host
+                // widget apply) lives on the section editor (batch 46).
+                _quickCaptureSettingsEditor.SetFeatureEnabled(enabled);
                 return;
             case WidgetKind.Todo:
-                TodoEnabled = enabled;
+                // The Todo switch's write chain (persist + host widget
+                // apply) lives on the section editor (batch 47).
+                _todoSettings.SetFeatureEnabled(enabled);
+                return;
+            case WidgetKind.Search:
+                TrackSearchFeatureAction(_searchFeatureSettings.SetEnabledAsync(enabled, reveal: enabled));
                 return;
         }
 
-        FeatureWidgetSettings.SetEnabled(_settingsService.Settings, kind, enabled);
+        _featureWidgetsSettings.SetFeatureWidgetEnabled(kind, enabled);
         _ = SyncFeatureWidgetAsync(kind, enabled);
     }
 
@@ -697,6 +189,7 @@ set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetO
 
     private async Task ApplyFeatureWidgetDefaultSettingsAsync(WidgetKind kind)
     {
+        Task recordingDrain = Task.CompletedTask;
         bool wasApplyingSnapshot = _isApplyingSettingsSnapshot;
         _isApplyingSettingsSnapshot = true;
         try
@@ -704,126 +197,36 @@ set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetO
             switch (kind)
             {
                 case WidgetKind.QuickCapture:
-                    QuickCaptureClipboardEnabled = false;
-                    QuickCaptureImageClipboardEnabled = false;
-                    QuickCaptureRecentLimit = QuickCaptureService.DefaultRecentLimit;
-                    QuickCaptureShowCreatedTime = true;
-                    QuickCaptureItemPreviewLineCount = SettingsService.DefaultQuickCaptureItemPreviewLineCount;
-                    QuickCaptureEditorEnterBehavior = SettingsService.EditorEnterBehaviorCtrlEnterSaves;
-                    QuickCaptureEditorFormat = SettingsService.QuickCaptureFormatMarkdown;
-                    QuickCaptureWideLayout = SettingsService.QuickCaptureWideLayoutAuto;
-                    QuickCaptureWideOpenMode = SettingsService.QuickCaptureWideOpenReading;
-                    QuickCaptureAllowRemoteImages = false;
-                    SelectedQuickCaptureDefaultView = SettingsService.QuickCaptureDefaultViewRecords;
-                    SelectedQuickCaptureTabStyle = SettingsService.WidgetTabStyleButton;
-                    QuickCaptureShowTabBar = true;
-                    QuickCaptureShowRecordsTab = true;
-                    QuickCaptureShowPinnedTab = true;
-                    QuickCaptureShowRecentTab = true;
-                    _settingsService.Settings.QuickCaptureClipboardEnabled = false;
-                    _settingsService.Settings.QuickCaptureImageClipboardEnabled = false;
-                    _settingsService.Settings.QuickCaptureRecentLimit = QuickCaptureService.DefaultRecentLimit;
-                    _settingsService.Settings.QuickCaptureShowCreatedTime = true;
-                    _settingsService.Settings.QuickCaptureItemPreviewLineCount = SettingsService.DefaultQuickCaptureItemPreviewLineCount;
-                    _settingsService.Settings.QuickCaptureEditorEnterBehavior = SettingsService.EditorEnterBehaviorCtrlEnterSaves;
-                    _settingsService.Settings.QuickCaptureDefaultFormat = SettingsService.QuickCaptureFormatMarkdown;
-                    _settingsService.Settings.QuickCaptureWideLayout = SettingsService.QuickCaptureWideLayoutAuto;
-                    _settingsService.Settings.QuickCaptureWideOpenMode = SettingsService.QuickCaptureWideOpenReading;
-                    _settingsService.Settings.QuickCaptureAllowRemoteImages = false;
-                    _settingsService.Settings.QuickCaptureDefaultView = SettingsService.QuickCaptureDefaultViewRecords;
-                    _settingsService.Settings.QuickCaptureTabStyle = SettingsService.WidgetTabStyleButton;
-                    _settingsService.Settings.QuickCaptureShowTabBar = true;
-                    _settingsService.Settings.QuickCaptureShowRecordsTab = true;
-                    _settingsService.Settings.QuickCaptureShowPinnedTab = true;
-                    _settingsService.Settings.QuickCaptureShowRecentTab = true;
-                    _settingsService.Settings.LastQuickCaptureFileWidgetId = string.Empty;
-                    App.Current?.RefreshQuickCaptureClipboardService();
-                    RefreshQuickCaptureClipboardDiagnostics();
+                    _quickCaptureSettings.ResetTabPreferences(scheduleSave: false);
+                    _quickCaptureSettings.ResetPresentationPreferences(scheduleSave: false);
+                    _quickCaptureSettings.ResetRecentLimit(scheduleSave: false);
+                    recordingDrain = _quickCaptureSettings.ResetRecordingAsync();
+                    _quickCaptureSettings.ResetEditorPreferences(scheduleSave: false);
+                    // The section editor re-projects from the coordinator's
+                    // reset state (the old shell mirror assignments and the
+                    // diagnostics rebuild folded into this sync).
+                    _quickCaptureSettingsEditor.SyncPresentation();
+                    _quickCaptureSettingsEditor.RefreshClipboardDiagnostics();
                     break;
                 case WidgetKind.Todo:
-                    TodoShowCompletedTasks = false;
-                    TodoItemPreviewLineCount = SettingsService.DefaultTodoItemPreviewLineCount;
-                    TodoEditorEnterBehavior = SettingsService.EditorEnterBehaviorCtrlEnterSaves;
-                    TodoShowFooterStats = false;
-                    TodoShowClearCompletedButton = true;
-                    TodoReminderEnabled = true;
-                    SelectedTodoLayoutMode = SettingsService.TodoLayoutModeAuto;
-                    TodoUseWideDetailPane = true;
-                    TodoAutoSelectFirstInWideLayout = true;
-                    SelectedTodoReminderOffsetMinutes = SettingsService.DefaultTodoReminderOffsetMinutes;
-                    SelectedTodoNewTaskPosition = SettingsService.TodoNewTaskPositionTop;
-                    SelectedTodoDefaultFilter = SettingsService.TodoDefaultFilterAll;
-                    SelectedTodoTabStyle = SettingsService.WidgetTabStyleButton;
-                    TodoShowTabBar = true;
-                    TodoShowAllTab = true;
-                    TodoShowActiveTab = false;
-                    TodoShowTodayTab = true;
-                    TodoShowThisWeekTab = false;
-                    TodoShowThisMonthTab = false;
-                    TodoShowImportantTab = true;
-                    TodoShowCompletedTab = true;
-                    _settingsService.Settings.TodoShowCompletedTasks = false;
-                    _settingsService.Settings.TodoItemPreviewLineCount = SettingsService.DefaultTodoItemPreviewLineCount;
-                    _settingsService.Settings.TodoEditorEnterBehavior = SettingsService.EditorEnterBehaviorCtrlEnterSaves;
-                    _settingsService.Settings.TodoShowFooterStats = false;
-                    _settingsService.Settings.TodoShowClearCompletedButton = true;
-                    _settingsService.Settings.TodoReminderEnabled = true;
-                    _settingsService.Settings.TodoLayoutMode = SettingsService.TodoLayoutModeAuto;
-                    _settingsService.Settings.TodoUseWideDetailPane = true;
-                    _settingsService.Settings.TodoAutoSelectFirstInWideLayout = true;
-                    _settingsService.Settings.TodoDefaultReminderOffsetMinutes = SettingsService.DefaultTodoReminderOffsetMinutes;
-                    _settingsService.Settings.TodoNewTaskPosition = SettingsService.TodoNewTaskPositionTop;
-                    _settingsService.Settings.TodoDefaultFilter = SettingsService.TodoDefaultFilterAll;
-                    _settingsService.Settings.TodoTabStyle = SettingsService.WidgetTabStyleButton;
-                    _settingsService.Settings.TodoShowTabBar = true;
-                    _settingsService.Settings.TodoShowAllTab = true;
-                    _settingsService.Settings.TodoShowActiveTab = false;
-                    _settingsService.Settings.TodoShowTodayTab = true;
-                    _settingsService.Settings.TodoShowThisWeekTab = false;
-                    _settingsService.Settings.TodoShowThisMonthTab = false;
-                    _settingsService.Settings.TodoShowImportantTab = true;
-                    _settingsService.Settings.TodoShowCompletedTab = true;
+                    _todoSettings.ResetDisplayOptions(scheduleSave: false);
+                    _todoSettings.ResetPreviewLineCount(scheduleSave: false);
+                    _todoSettings.ResetInputPreferences(scheduleSave: false);
+                    _todoSettings.ResetLayoutPreferences(scheduleSave: false);
+                    _todoSettings.ResetTabPreferences(scheduleSave: false);
+                    _todoSettings.ResetReminderPreferences(scheduleSave: false);
                     break;
                 case WidgetKind.Music:
-                    MusicUseArtworkBackdrop = true;
-                    MusicEnableCoverHoverMotion = true;
-                    SelectedMusicDisplayMode = SettingsService.MusicDisplayModeAuto;
-                    _settingsService.Settings.MusicUseArtworkBackdrop = true;
-                    _settingsService.Settings.MusicEnableCoverHoverMotion = true;
-                    _settingsService.Settings.MusicDisplayMode = SettingsService.MusicDisplayModeAuto;
+                    _featureWidgetsSettings.ResetMusicPresentationPreferences(scheduleSave: false);
+                    _musicSettings.SyncPresentation();
                     break;
                 case WidgetKind.Weather:
-                    WeatherAutoLocation = true;
-                    WeatherCityName = string.Empty;
-                    SelectedWeatherTemperatureUnit = SettingsService.WeatherTemperatureUnitCelsius;
-                    SelectedWeatherWindSpeedUnit = SettingsService.WeatherWindSpeedUnitKmh;
-                    SelectedWeatherDefaultView = SettingsService.WeatherDefaultViewToday;
-                    SelectedWeatherSkin = SettingsService.WeatherSkinRich;
-                    WeatherShowForecast = true;
-                    WeatherShowSunrise = true;
-                    WeatherShowUvIndex = true;
-                    WeatherShowPrecipitation = true;
-                    WeatherShowHumidity = true;
-                    WeatherShowWind = true;
-                    WeatherShowPressure = false;
-                    SelectedWeatherRefreshInterval = 60;
-
-                    _settingsService.Settings.WeatherAutoLocation = true;
-                    _settingsService.Settings.WeatherCityName = string.Empty;
-                    _settingsService.Settings.WeatherLatitude = 0;
-                    _settingsService.Settings.WeatherLongitude = 0;
-                    _settingsService.Settings.WeatherTemperatureUnit = SettingsService.WeatherTemperatureUnitCelsius;
-                    _settingsService.Settings.WeatherWindSpeedUnit = SettingsService.WeatherWindSpeedUnitKmh;
-                    _settingsService.Settings.WeatherDefaultView = SettingsService.WeatherDefaultViewToday;
-                    _settingsService.Settings.WeatherSkin = SettingsService.WeatherSkinRich;
-                    _settingsService.Settings.WeatherShowForecast = true;
-                    _settingsService.Settings.WeatherShowSunrise = true;
-                    _settingsService.Settings.WeatherShowUvIndex = true;
-                    _settingsService.Settings.WeatherShowPrecipitation = true;
-                    _settingsService.Settings.WeatherShowHumidity = true;
-                    _settingsService.Settings.WeatherShowWind = true;
-                    _settingsService.Settings.WeatherShowPressure = false;
-                    _settingsService.Settings.WeatherRefreshIntervalMinutes = 60;
+                    // The weather section editor owns the binding surface
+                    // (batch 48): the coordinator reset port writes the
+                    // fresh-install defaults and the editor's RunWrite
+                    // re-projects them (the old shell mirror assignments
+                    // are gone).
+                    _weatherSettings.ResetPreferences(scheduleSave: false);
                     break;
                 case WidgetKind.DormElectricity:
                     _settingsService.Settings.DormElectricity.DormElectricityClient =
@@ -843,6 +246,7 @@ set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetO
             _isApplyingSettingsSnapshot = wasApplyingSnapshot;
         }
 
+        await recordingDrain;
         await _settingsService.SaveAsync();
     }
 
@@ -851,23 +255,26 @@ set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetO
         switch (kind)
         {
             case WidgetKind.QuickCapture:
-                OnPropertyChanged(nameof(QuickCaptureEnabled));
-                OnPropertyChanged(nameof(QuickCaptureStatusText));
-                OnPropertyChanged(nameof(QuickCaptureDependencyStatusText));
-                OnPropertyChanged(nameof(QuickCaptureRecentLimitText));
-                OnPropertyChanged(nameof(QuickCaptureRecentLimitInput));
-                OnPropertyChanged(nameof(SelectedQuickCaptureDefaultViewText));
-                OnPropertyChanged(nameof(SelectedQuickCaptureTabStyleText));
+                // The section editor re-projects the whole Quick Capture
+                // surface (the old per-property notifications are its own
+                // PropertyChanged broadcasts now).
+                _quickCaptureSettingsEditor.SyncPresentation();
+                _quickCaptureSettingsEditor.RefreshClipboardDiagnostics();
                 break;
             case WidgetKind.Todo:
-                OnPropertyChanged(nameof(TodoEnabled));
-                OnPropertyChanged(nameof(SelectedTodoNewTaskPositionText));
-                OnPropertyChanged(nameof(SelectedTodoDefaultFilterText));
-                OnPropertyChanged(nameof(SelectedTodoTabStyleText));
+                // The section editor re-projects the whole Todo surface
+                // (the old per-property notifications are its own
+                // PropertyChanged broadcasts now).
+                _todoSettings.Refresh();
+                OnPropertyChanged(nameof(FeatureWidgetEntries));
                 break;
             case WidgetKind.Music:
                 break;
             case WidgetKind.Weather:
+                // The section editor re-projects the whole Weather surface
+                // (the old per-property notifications are its own
+                // PropertyChanged broadcasts now).
+                _weatherSettings.Refresh();
                 break;
         }
     }
@@ -893,269 +300,6 @@ set => WidgetOpacity = Math.Clamp(1.0 - value / 100d, SettingsService.MinWidgetO
             OnPropertyChanged(nameof(FeatureWidgetEntries));
         }
     }
-
-    public SolidColorBrush AccentPreviewBrush { get; } = new(AccentColorHelper.DefaultAccentColor);
-
-    public string[] AvailableThemes { get; } = [ThemeSystem, ThemeLight, ThemeDark];
-    public string[] AvailableThemeDisplayNames => _cachedThemeDisplayNames ??= AvailableThemes.Select(GetThemeDisplayName).ToArray();
-    public string[] AvailableLanguages { get; } =
-    [
-        SettingsService.LanguageSystem,
-        SettingsService.LanguageChinese,
-        SettingsService.LanguageChineseTraditional,
-        SettingsService.LanguageEnglish,
-        LocalizationService.LanguageJapanese,
-        LocalizationService.LanguageGerman,
-        LocalizationService.LanguagePortuguese,
-        LocalizationService.LanguageHindi,
-        LocalizationService.LanguageSpanish,
-        LocalizationService.LanguageFrench,
-        LocalizationService.LanguageArabic,
-        LocalizationService.LanguageBengali,
-        LocalizationService.LanguageRussian
-    ];
-    public string[] AvailableLanguageDisplayNames => _cachedLanguageDisplayNames ??= AvailableLanguages.Select(_localizationService.GetLanguageDisplayName).ToArray();
-    public string[] AvailableWidgetCornerPreferences { get; } =
-        [CornerRound, CornerSmall, CornerSquare];
-    public string[] AvailableWidgetCornerPreferenceDisplayNames => _cachedWidgetCornerPreferenceDisplayNames ??= AvailableWidgetCornerPreferences.Select(GetCornerDisplayName).ToArray();
-
-    public string[] AvailableWidgetMaterialTypes => WindowsCompatibilityService.IsWindows11OrLater
-        ? [MaterialAcrylic, MaterialAcrylicBase, MaterialMica, MaterialMicaAlt, MaterialSolid]
-        : [MaterialAcrylic, MaterialAcrylicBase, MaterialSolid];
-    public string[] AvailableWidgetMaterialTypeDisplayNames => _cachedWidgetMaterialTypeDisplayNames ??= AvailableWidgetMaterialTypes.Select(GetMaterialTypeDisplayName).ToArray();
-
-    public string[] AvailableWidgetBorderColorModes { get; } =
-        [BorderColorNeutral, BorderColorAccent, BorderColorNone];
-    public string[] AvailableWidgetBorderColorModeDisplayNames =>
-        _cachedWidgetBorderColorModeDisplayNames ??=
-            AvailableWidgetBorderColorModes.Select(GetBorderColorModeDisplayName).ToArray();
-
-    public string[] AvailableWidgetBorderStyles { get; } = [BorderThin, BorderMedium, BorderThick];
-    public string[] AvailableWidgetBorderStyleDisplayNames => _cachedWidgetBorderStyleDisplayNames ??= AvailableWidgetBorderStyles.Select(GetBorderStyleDisplayName).ToArray();
-
-    public string[] AvailableWidgetCollapseBehaviors { get; } =
-    [
-        SettingsService.WidgetCollapseBehaviorExpanded,
-        SettingsService.WidgetCollapseBehaviorClick,
-        SettingsService.WidgetCollapseBehaviorSmart
-    ];
-    public string[] AvailableWidgetCollapseBehaviorDisplayNames =>
-        _cachedWidgetCollapseBehaviorDisplayNames ??=
-            AvailableWidgetCollapseBehaviors.Select(GetWidgetCollapseBehaviorDisplayName).ToArray();
-
-    public string[] AvailableWidgetCompactContentModes { get; } =
-    [
-        SettingsService.WidgetCompactContentModeSmart,
-        SettingsService.WidgetCompactContentModeSummary,
-        SettingsService.WidgetCompactContentModeMinimal
-    ];
-    public string[] AvailableWidgetCompactContentModeDisplayNames =>
-        _cachedWidgetCompactContentModeDisplayNames ??=
-            AvailableWidgetCompactContentModes.Select(GetWidgetCompactContentModeDisplayName).ToArray();
-    public string[] AvailableLayoutDensities { get; } =
-    [
-        SettingsService.LayoutDensityCompact,
-        SettingsService.LayoutDensityStandard,
-        SettingsService.LayoutDensityRelaxed,
-        SettingsService.LayoutDensityCustom
-    ];
-    public string[] AvailableLayoutDensityDisplayNames =>
-        _cachedLayoutDensityDisplayNames ??= AvailableLayoutDensities.Select(GetLayoutDensityDisplayName).ToArray();
-    public string[] AvailableMusicDisplayModes { get; } =
-    [
-        SettingsService.MusicDisplayModeAuto,
-        SettingsService.MusicDisplayModeCover,
-        SettingsService.MusicDisplayModeControls,
-        SettingsService.MusicDisplayModeRecordVertical,
-        SettingsService.MusicDisplayModeRecordHorizontal
-    ];
-    public string[] AvailableMusicDisplayModeDisplayNames =>
-        _cachedMusicDisplayModeDisplayNames ??= AvailableMusicDisplayModes.Select(GetMusicDisplayModeDisplayName).ToArray();
-    public string[] AvailableAnimationPresets { get; } =
-    [
-        AnimationPresetGentle,
-        AnimationPresetStandard,
-        AnimationPresetEmphasized,
-        AnimationPresetCustom
-    ];
-    public string[] AvailableAnimationPresetDisplayNames =>
-        _cachedAnimationPresetDisplayNames ??= AvailableAnimationPresets.Select(GetAnimationPresetDisplayName).ToArray();
-    public string[] AvailableWidgetAnimationEffects { get; } =
-    [
-        SettingsService.WidgetAnimationEffectSlideFade,
-        SettingsService.WidgetAnimationEffectFade,
-        SettingsService.WidgetAnimationEffectScaleFade,
-        SettingsService.WidgetAnimationEffectZoom
-    ];
-    public string[] AvailableWidgetAnimationEffectDisplayNames => _cachedWidgetAnimationEffectDisplayNames ??= AvailableWidgetAnimationEffects.Select(GetWidgetAnimationEffectDisplayName).ToArray();
-    public string[] AvailableWidgetAnimationSpeeds { get; } =
-    [
-        SettingsService.WidgetAnimationSpeedVeryFast,
-        SettingsService.WidgetAnimationSpeedFast,
-        SettingsService.WidgetAnimationSpeedStandard,
-        SettingsService.WidgetAnimationSpeedRelaxed,
-        SettingsService.WidgetAnimationSpeedSlow
-    ];
-    public string[] AvailableWidgetAnimationSpeedDisplayNames => _cachedWidgetAnimationSpeedDisplayNames ??= AvailableWidgetAnimationSpeeds.Select(GetWidgetAnimationSpeedDisplayName).ToArray();
-    public string[] AvailableWidgetAnimationSlideDirections { get; } =
-    [
-        SettingsService.WidgetAnimationSlideDirectionLeft,
-        SettingsService.WidgetAnimationSlideDirectionRight,
-        SettingsService.WidgetAnimationSlideDirectionUp,
-        SettingsService.WidgetAnimationSlideDirectionDown
-    ];
-    public string[] AvailableWidgetAnimationSlideDirectionDisplayNames => _cachedWidgetAnimationSlideDirectionDisplayNames ??= AvailableWidgetAnimationSlideDirections.Select(GetWidgetAnimationSlideDirectionDisplayName).ToArray();
-    public string[] AvailableWidgetAnimationEasingIntensities { get; } =
-    [
-        SettingsService.WidgetAnimationEasingNone,
-        SettingsService.WidgetAnimationEasingLight,
-        SettingsService.WidgetAnimationEasingStandard,
-        SettingsService.WidgetAnimationEasingStrong
-    ];
-    public string[] AvailableWidgetAnimationEasingIntensityDisplayNames => _cachedWidgetAnimationEasingIntensityDisplayNames ??= AvailableWidgetAnimationEasingIntensities.Select(GetWidgetAnimationEasingIntensityDisplayName).ToArray();
-
-    public string[] AvailableDisplayWidgetChromeModes { get; } =
-    [
-        SettingsService.WidgetChromeModeStandard,
-        SettingsService.WidgetChromeModeCompact,
-        SettingsService.WidgetChromeModeOverlay,
-        SettingsService.WidgetChromeModeHidden
-    ];
-
-    public string[] AvailableInteractiveWidgetChromeModes { get; } =
-    [
-        SettingsService.WidgetChromeModeStandard,
-        SettingsService.WidgetChromeModeCompact,
-        SettingsService.WidgetChromeModeOverlay,
-        SettingsService.WidgetChromeModeHidden
-    ];
-
-    public string[] AvailableDisplayWidgetChromeModeDisplayNames => _cachedDisplayWidgetChromeModeDisplayNames ??= AvailableDisplayWidgetChromeModes.Select(GetWidgetChromeModeDisplayName).ToArray();
-    public string[] AvailableInteractiveWidgetChromeModeDisplayNames => _cachedInteractiveWidgetChromeModeDisplayNames ??= AvailableInteractiveWidgetChromeModes.Select(GetWidgetChromeModeDisplayName).ToArray();
-
-    public string[] AvailableWidgetTitleIconModes { get; } =
-    [
-        SettingsService.WidgetTitleIconModeFilledMono,
-        SettingsService.WidgetTitleIconModeLineMono,
-        SettingsService.WidgetTitleIconModeColor,
-        SettingsService.WidgetTitleIconModeHidden,
-        SettingsService.WidgetTitleIconModeTextLabel
-    ];
-
-    public string[] AvailableWidgetTitleIconModeDisplayNames => _cachedWidgetTitleIconModeDisplayNames ??= AvailableWidgetTitleIconModes.Select(GetWidgetTitleIconModeDisplayName).ToArray();
-
-    public string[] AvailableWidgetLayerModes { get; } =
-    [
-        SettingsService.WidgetLayerModeDynamic,
-        SettingsService.WidgetLayerModeDesktopPinned,
-        SettingsService.WidgetLayerModeQuickReveal
-    ];
-
-    public string[] AvailableWidgetLayerModeDisplayNames => _cachedWidgetLayerModeDisplayNames ??= AvailableWidgetLayerModes.Select(GetWidgetLayerModeDisplayName).ToArray();
-
-    public string[] AvailableQuickCaptureDefaultViews { get; } =
-    [
-        SettingsService.QuickCaptureDefaultViewRecords,
-        SettingsService.QuickCaptureDefaultViewPinned,
-        SettingsService.QuickCaptureDefaultViewRecent
-    ];
-
-    public string[] AvailableQuickCaptureDefaultViewDisplayNames => _cachedQuickCaptureDefaultViewDisplayNames ??= AvailableQuickCaptureDefaultViews.Select(GetQuickCaptureDefaultViewDisplayName).ToArray();
-
-    public string[] AvailableWidgetTabStyles { get; } =
-    [
-        SettingsService.WidgetTabStylePivot,
-        SettingsService.WidgetTabStyleButton
-    ];
-
-    public string[] AvailableQuickCaptureTabStyleDisplayNames => _cachedQuickCaptureTabStyleDisplayNames ??= AvailableWidgetTabStyles.Select(GetWidgetTabStyleDisplayName).ToArray();
-
-    public string[] AvailableTodoNewTaskPositions { get; } =
-    [
-        SettingsService.TodoNewTaskPositionTop,
-        SettingsService.TodoNewTaskPositionBottom
-    ];
-
-    public string[] AvailableTodoNewTaskPositionDisplayNames => _cachedTodoNewTaskPositionDisplayNames ??= AvailableTodoNewTaskPositions.Select(GetTodoNewTaskPositionDisplayName).ToArray();
-
-    public string[] AvailableAttachmentStorageModes { get; } =
-    [
-        SettingsService.AttachmentStorageModeLink,
-        SettingsService.AttachmentStorageModeCopy
-    ];
-
-    public string[] AvailableAttachmentStorageModeDisplayNames =>
-        _cachedAttachmentStorageModeDisplayNames ??=
-            AvailableAttachmentStorageModes.Select(GetAttachmentStorageModeDisplayName).ToArray();
-
-    public string[] AvailableManagedDropActions { get; } =
-    [
-        SettingsService.ManagedDropActionCopy,
-        SettingsService.ManagedDropActionMove,
-        SettingsService.ManagedDropActionFollowWindows
-    ];
-
-    public string[] AvailableManagedDropActionDisplayNames =>
-        _cachedManagedDropActionDisplayNames ??= AvailableManagedDropActions
-            .Select(GetManagedDropActionDisplayName)
-            .ToArray();
-
-    public string GetManagedDropActionDisplayName(string action) =>
-        action switch
-        {
-            SettingsService.ManagedDropActionMove =>
-                _localizationService.T("Settings.DropAction.Move"),
-            SettingsService.ManagedDropActionFollowWindows =>
-                _localizationService.T("Settings.DropAction.System"),
-            _ => _localizationService.T("Settings.DropAction.Copy")
-        };
-
-    public string GetAttachmentStorageModeDisplayName(string storageMode)
-    {
-        return SettingsService.NormalizeAttachmentStorageMode(storageMode) == SettingsService.AttachmentStorageModeCopy
-            ? _localizationService.T("Settings.AttachmentStorageMode.Copy")
-            : _localizationService.T("Settings.AttachmentStorageMode.Link");
-    }
-
-    public string[] AvailableTodoDefaultFilters { get; } =
-    [
-        SettingsService.TodoDefaultFilterAll,
-        SettingsService.TodoDefaultFilterActive,
-        SettingsService.TodoDefaultFilterToday,
-        SettingsService.TodoDefaultFilterThisWeek,
-        SettingsService.TodoDefaultFilterThisMonth,
-        SettingsService.TodoDefaultFilterImportant,
-        SettingsService.TodoDefaultFilterCompleted
-    ];
-
-    public string[] AvailableTodoDefaultFilterDisplayNames => _cachedTodoDefaultFilterDisplayNames ??= AvailableTodoDefaultFilters.Select(GetTodoDefaultFilterDisplayName).ToArray();
-
-    public string[] AvailableTodoLayoutModes { get; } =
-    [
-        SettingsService.TodoLayoutModeAuto,
-        SettingsService.TodoLayoutModeSinglePane,
-        SettingsService.TodoLayoutModeDualPane
-    ];
-
-    public string[] AvailableTodoLayoutModeDisplayNames =>
-        _cachedTodoLayoutModeDisplayNames ??= AvailableTodoLayoutModes
-            .Select(GetTodoLayoutModeDisplayName)
-            .ToArray();
-
-    public string[] AvailableTodoTabStyleDisplayNames => _cachedTodoTabStyleDisplayNames ??= AvailableWidgetTabStyles.Select(GetWidgetTabStyleDisplayName).ToArray();
-
-    public int[] AvailableTodoReminderOffsetMinutes { get; } =
-    [
-        0,
-        5,
-        10,
-        15,
-        30,
-        60,
-        1440
-    ];
-
-    public string[] AvailableTodoReminderOffsetDisplayNames => _cachedTodoReminderOffsetDisplayNames ??= AvailableTodoReminderOffsetMinutes.Select(GetTodoReminderOffsetDisplayName).ToArray();
 
 // ─── Weather Settings Properties ──────────────────────────────
 }

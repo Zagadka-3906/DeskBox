@@ -22,164 +22,95 @@ namespace DeskBox.Views;
 public sealed partial class SettingsWindow
 {
     private const string DormForkRepositoryUrl = "https://github.com/Zagadka-3906/DeskBox";
-    private const string DormForkReleaseUrl = DormForkRepositoryUrl + "/releases/tag/v1.5.5-dorm.4";
+    private const string DormForkReleaseUrl = DormForkRepositoryUrl + "/releases/tag/v1.5.9-dorm.1";
 
     private async void ChangeManagedStoragePathButton_Click(object sender, RoutedEventArgs e)
     {
-        if (SettingsRoot.XamlRoot is null)
-        {
-            return;
-        }
+        await ChangeManagedStoragePathAsync();
+    }
 
-        string? folderPath = await FolderPickerService.PickFolderAsync(_hWnd);
-        if (string.IsNullOrWhiteSpace(folderPath))
+    private async Task ChangeManagedStoragePathAsync()
+    {
+        while (true)
         {
-            return;
-        }
 
-        string normalizedPath = SettingsService.NormalizeManagedStorageRootPath(folderPath);
-        if (string.Equals(normalizedPath, ViewModel.ManagedStorageRootPath, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        int affectedCount = App.Current.WidgetManager?.GetDefaultManagedStorageWidgetCount() ?? 0;
-        if (affectedCount > 0)
-        {
-            var dialog = new ContentDialog
-            {
-                XamlRoot = SettingsRoot.XamlRoot,
-                Title = _localizationService.T("Settings.Dialog.MigrateTitle"),
-                PrimaryButtonText = _localizationService.T("Settings.Dialog.MigrateButton"),
-                CloseButtonText = _localizationService.T("Common.Cancel"),
-                DefaultButton = ContentDialogButton.Primary,
-                Content = new TextBlock
-                {
-                    Text = _localizationService.Format(
-                        "Settings.Dialog.MigrateBody",
-                        affectedCount,
-                        ViewModel.ManagedStorageRootPath,
-                        normalizedPath),
-                    TextWrapping = TextWrapping.Wrap
-                }
-            };
-
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            if (SettingsRoot.XamlRoot is null)
             {
                 return;
             }
-        }
 
-        await ApplyManagedStoragePathChangeAsync(normalizedPath, allowStaleCleanupRetry: true);
+            string? folderPath = await FolderPickerService.PickFolderAsync(_hWnd);
+            if (string.IsNullOrWhiteSpace(folderPath))
+            {
+                return;
+            }
+
+            string normalizedPath = SettingsService.NormalizeManagedStorageRootPath(folderPath);
+            if (string.Equals(normalizedPath, ViewModel.ManagedStorageRootPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            // The desktop organizer sweeps the desktop on every run; a
+            // storage root there would re-ingest its own managed folders,
+            // so the choice is rejected before any migration is offered.
+            if (ManagedStoragePathService.OverlapsDesktop(normalizedPath))
+            {
+                await ShowManagedStorageDesktopOverlapDialogAsync();
+                continue;
+            }
+
+            if (App.Current.WidgetManager is not { } manager) return;
+            var choice = await ManagedStorageMigrationDialog.ConfirmAsync(SettingsRoot.XamlRoot, _localizationService,
+                manager.GetDefaultManagedStorageWidgetCount(), ViewModel.ManagedStorageRootPath, normalizedPath,
+                token => manager.PreviewManagedStorageMigrationAsync(normalizedPath, token));
+            if (choice is null) return;
+            if (choice == StorageMigrationStartChoice.ChooseLocation)
+            {
+                continue;
+            }
+            var outcome = await ManagedStorageMigrationDialog.RunAsync(
+                SettingsRoot.XamlRoot, SettingsRoot.DispatcherQueue, _localizationService,
+                ViewModel.ManagedStorageRootPath, normalizedPath,
+                options => manager.UpdateDefaultManagedStorageRootAsync(normalizedPath, options),
+                restart: choice == StorageMigrationStartChoice.Restart);
+            if (outcome.ChooseLocation)
+            {
+                continue;
+            }
+            ManagedStorageMigrationResult? result = outcome.Migration;
+            if (result is not null)
+            {
+                ViewModel.UpdateManagedStorageRootPath(result.NewRootPath);
+                try { await App.Current.ManagedStorageDesktopShortcutService.SyncAsync(result.OldRootPath); }
+                catch (Exception ex) { App.Log($"[ManagedStorageMigration] Desktop shortcut sync deferred: {ex.Message}"); }
+            }
+            RefreshManagedStoragePathWarning();
+            return;
+        }
     }
 
-    private async Task ApplyManagedStoragePathChangeAsync(
-        string normalizedPath,
-        bool allowStaleCleanupRetry)
+    private async Task ShowManagedStorageDesktopOverlapDialogAsync()
     {
         if (SettingsRoot.XamlRoot is null)
         {
             return;
         }
 
-        if (App.Current.WidgetManager is not null)
+        var dialog = new ContentDialog
         {
-            ManagedStorageMigrationResult? result = null;
-            try
+            XamlRoot = SettingsRoot.XamlRoot,
+            Title = _localizationService.T("Settings.ManagedPath.Error.DesktopOverlapTitle"),
+            CloseButtonText = _localizationService.T("Common.Close"),
+            DefaultButton = ContentDialogButton.Close,
+            Content = new TextBlock
             {
-                string oldRootPath = ViewModel.ManagedStorageRootPath;
-                result = await ManagedStorageMigrationDialog.RunAsync(
-                    SettingsRoot.XamlRoot,
-                    SettingsRoot.DispatcherQueue,
-                    _localizationService,
-                    oldRootPath,
-                    normalizedPath,
-                    options => App.Current.WidgetManager
-                        .UpdateDefaultManagedStorageRootAsync(normalizedPath, options),
-                    (items, options) => App.Current.WidgetManager
-                        .RetrySkippedMigrationItemsAsync(items, options));
+                Text = _localizationService.T("Settings.ManagedPath.Error.DesktopOverlapBody"),
+                TextWrapping = TextWrapping.Wrap
             }
-            catch (ManagedStorageDestinationResidueException ex) when (
-                allowStaleCleanupRetry &&
-                App.Current.WidgetManager is not null)
-            {
-                ContentDialogResult choice = await ManagedStorageMigrationResidueDialog
-                    .ShowStaleDestinationAsync(
-                        SettingsRoot.XamlRoot,
-                        _localizationService,
-                        ex.StaleDestinationFolders);
-                if (choice != ContentDialogResult.Primary)
-                {
-                    return;
-                }
+        };
 
-                await App.Current.WidgetManager.DeleteMigrationResidueFoldersAsync(
-                    ex.StaleDestinationFolders);
-                await ApplyManagedStoragePathChangeAsync(
-                    normalizedPath,
-                    allowStaleCleanupRetry: false);
-                return;
-            }
-            catch (ManagedStorageRollbackFailureException ex)
-            {
-                // The rollback left folders in both roots: list them and offer
-                // a conservative retry instead of a bare failure message (#112).
-                await ManagedStorageMigrationResidueDialog.ShowRollbackFailureAsync(
-                    SettingsRoot.XamlRoot,
-                    _localizationService,
-                    failures => App.Current.WidgetManager.RetryMigrationRollbackAsync(failures),
-                    ex);
-                return;
-            }
-            catch (Exception ex)
-            {
-                // The outer message only counts completed items; the inner
-                // exception names the file that failed (e.g. locked by an app).
-                string detail = ex.InnerException is { } inner
-                    ? $"{ex.Message} {inner.Message}"
-                    : ex.Message;
-                var errorDialog = new ContentDialog
-                {
-                    XamlRoot = SettingsRoot.XamlRoot,
-                    Title = _localizationService.T("Settings.Dialog.MigrateFailedTitle"),
-                    CloseButtonText = _localizationService.T("Common.Ok"),
-                    DefaultButton = ContentDialogButton.Close,
-                    Content = new TextBlock
-                    {
-                        Text = _localizationService.Format("Settings.Dialog.MigrateFailedBody", detail),
-                        TextWrapping = TextWrapping.Wrap
-                    }
-                };
-
-                await errorDialog.ShowAsync();
-                return;
-            }
-
-            if (result is null)
-            {
-                // Canceled or failed: the migration dialog already presented
-                // the outcome, and the rollback restored the stored root —
-                // ViewModel.ManagedStorageRootPath still shows the old path,
-                // so only the warning badge needs a refresh.
-                RefreshManagedStoragePathWarning();
-                return;
-            }
-
-            if (result.Residues.Count > 0)
-            {
-                // The migration itself finished; only the old-root cleanup
-                // left folders behind. Surface them with an explicit
-                // recycle-or-keep choice instead of a failure dialog.
-                await ManagedStorageMigrationResidueDialog.ShowMigrationResidueAsync(
-                    SettingsRoot.XamlRoot,
-                    _localizationService,
-                    folders => App.Current.WidgetManager.DeleteMigrationResidueFoldersAsync(folders),
-                    result);
-            }
-        }
-
-        ViewModel.UpdateManagedStorageRootPath(normalizedPath);
-        RefreshManagedStoragePathWarning();
+        await dialog.ShowAsync();
     }
 
     private void RefreshManagedStoragePathWarning()
@@ -192,29 +123,56 @@ public sealed partial class SettingsWindow
         ManagedStoragePathAssessment assessment =
             ManagedStoragePathService.AssessPath(ViewModel.ManagedStorageRootPath);
         var warnings = new List<string>();
+        if (ManagedStoragePathService.OverlapsDesktop(ViewModel.ManagedStorageRootPath))
+        {
+            warnings.Add(_localizationService.T("Settings.ManagedPath.Warning.DesktopOverlap"));
+        }
         if (assessment.IsSystemDrive)
         {
             warnings.Add(_localizationService.T(assessment.HasSuitableNonSystemDrive
-                ? "Onboarding.Task.Step2.Warning.SystemDrive"
-                : "Onboarding.Task.Step2.Warning.SystemDriveOnly"));
+                ? "Settings.ManagedPath.Warning.SystemDrive"
+                : "Settings.ManagedPath.Warning.SystemDriveOnly"));
         }
         if (assessment.IsCloudSynced)
         {
-            warnings.Add(_localizationService.T("Onboarding.Task.Step2.Warning.CloudSync"));
+            warnings.Add(_localizationService.T("Settings.ManagedPath.Warning.CloudSync"));
         }
         if (assessment.DriveType == DriveType.Removable || assessment.IsTransientBusDrive)
         {
-            warnings.Add(_localizationService.T("Onboarding.Task.Step2.Warning.Removable"));
+            warnings.Add(_localizationService.T("Settings.ManagedPath.Warning.Removable"));
         }
         else if (assessment.DriveType == DriveType.Network)
         {
-            warnings.Add(_localizationService.T("Onboarding.Task.Step2.Warning.Network"));
+            warnings.Add(_localizationService.T("Settings.ManagedPath.Warning.Network"));
         }
 
         ManagedStoragePathWarningText.Text = string.Join(Environment.NewLine, warnings);
-        ManagedStoragePathWarningBorder.Visibility = warnings.Count > 0
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        ManagedStoragePathWarningBorder.IsOpen = warnings.Count > 0;
+    }
+
+    private void RefreshDragOutWin10State()
+    {
+        // Windows 10 cannot offer a modifier switch to external targets: a
+        // brokered drag there advertises a single effect only. The modifier
+        // tip therefore never fires and its toggle is disabled; the note is
+        // appended to the card description (the content column is an Auto
+        // grid column — a wide note there overflows the card on high-scale
+        // narrow windows instead of wrapping).
+        bool modifiersReachExternalTargets =
+            WindowsCompatibilityService.IsWindows11OrLater;
+        if (DragOutActionCard is { } card)
+        {
+            string description = _localizationService.T("Settings.DragOutAction.Description");
+            if (!modifiersReachExternalTargets)
+            {
+                description += "\n" + _localizationService.T("Settings.DragOutAction.Win10Note");
+            }
+            card.Description = description;
+        }
+        if (DragOutModifierTipToggle is { } toggle)
+        {
+            toggle.IsEnabled = modifiersReachExternalTargets;
+        }
     }
 
     private bool _isSynchronizingManagedStorageDesktopShortcutToggle;
@@ -298,13 +256,13 @@ public sealed partial class SettingsWindow
 
     private async void PinManagedStorageToQuickAccessButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!ViewModel.CanInvokeQuickAccessAction)
+        if (!_managedStorageSettingsViewModel.CanInvokeQuickAccessAction)
         {
             return;
         }
 
         string path = ViewModel.ManagedStorageRootPath;
-        bool shouldUnpin = ViewModel.ShouldUnpinManagedStorageFromQuickAccess;
+        bool shouldUnpin = _managedStorageSettingsViewModel.ShouldUnpinQuickAccessAction;
 
         ViewModel.SetQuickAccessBusy(true);
         try
@@ -333,7 +291,7 @@ public sealed partial class SettingsWindow
                 Title = shouldUnpin
                     ? _localizationService.T("Settings.Dialog.UnpinQuickAccessFailedTitle")
                     : _localizationService.T("Settings.Dialog.PinQuickAccessFailedTitle"),
-                CloseButtonText = _localizationService.T("Common.Ok"),
+                CloseButtonText = _localizationService.T("Common.Close"),
                 DefaultButton = ContentDialogButton.Close,
                 Content = new TextBlock
                 {
@@ -355,7 +313,7 @@ public sealed partial class SettingsWindow
                     Title = shouldUnpin
                         ? _localizationService.T("Settings.Dialog.UnpinQuickAccessFailedTitle")
                         : _localizationService.T("Settings.Dialog.PinQuickAccessFailedTitle"),
-                    CloseButtonText = _localizationService.T("Common.Ok"),
+                    CloseButtonText = _localizationService.T("Common.Close"),
                     DefaultButton = ContentDialogButton.Close,
                     Content = new TextBlock
                     {
@@ -422,6 +380,19 @@ public sealed partial class SettingsWindow
 
     private async void OneClickUpdateButton_Click(object sender, RoutedEventArgs e)
     {
+        await RunOneClickUpdateFlowAsync();
+    }
+
+    /// <summary>
+    /// The one-click update flow, shared by the About-page button and
+    /// external entry points (update-toast activation). Runs check →
+    /// download, or the install confirmation when a download already
+    /// finished; failures surface through the same retry/offline dialogs.
+    /// The caller is responsible for having the window visible and on the
+    /// About section before invoking, so progress stays in view.
+    /// </summary>
+    public async Task RunOneClickUpdateFlowAsync()
+    {
         // If update is already downloaded, show install confirmation dialog.
         if (ViewModel.IsUpdateDownloaded)
         {
@@ -475,28 +446,10 @@ public sealed partial class SettingsWindow
         while (result is { Success: false, FailureKind: not AppUpdateDownloadFailureKind.Cancelled } &&
                SettingsRoot.XamlRoot is not null)
         {
-            var dialog = new ContentDialog
-            {
-                XamlRoot = SettingsRoot.XamlRoot,
-                Title = _localizationService.T("Settings.Update.DownloadFailedTitle"),
-                Content = new TextBlock
-                {
-                    Text = _localizationService.Format(
-                        "Settings.Update.DownloadFailedBody",
-                        ViewModel.UpdateDetailText),
-                    TextWrapping = TextWrapping.Wrap
-                },
-                PrimaryButtonText = _localizationService.T("Settings.Update.OneClick.Retry"),
-                CloseButtonText = _localizationService.T("Common.Cancel"),
-                DefaultButton = ContentDialogButton.Primary
-            };
-
-            if (ViewModel.CanOpenManualUpdateDownload)
-            {
-                dialog.SecondaryButtonText = ViewModel.UpdateFallbackActionText;
-            }
-
-            ContentDialogResult choice = await dialog.ShowAsync();
+            // Raised from a download continuation, so it can land while the
+            // user already has a dialog open on this window; the coordinator
+            // retries briefly instead of crashing on the second ShowAsync.
+            ContentDialogResult choice = await ShowDialogWhenFreeAsync(BuildDownloadFailureDialog);
             if (choice == ContentDialogResult.Secondary)
             {
                 OpenManualUpdateDownload();
@@ -512,12 +465,39 @@ public sealed partial class SettingsWindow
         }
     }
 
+    private ContentDialog BuildDownloadFailureDialog()
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = SettingsRoot.XamlRoot,
+            Title = _localizationService.T("Settings.Update.DownloadFailedTitle"),
+            Content = new TextBlock
+            {
+                Text = _localizationService.Format(
+                    "Settings.Update.DownloadFailedBody",
+                    ViewModel.UpdateDetailText),
+                TextWrapping = TextWrapping.Wrap
+            },
+            PrimaryButtonText = _localizationService.T("Settings.Update.OneClick.Retry"),
+            CloseButtonText = _localizationService.T("Common.Cancel"),
+            DefaultButton = ContentDialogButton.Primary
+        };
+
+        if (ViewModel.CanOpenManualUpdateDownload)
+        {
+            dialog.SecondaryButtonText = ViewModel.UpdateFallbackActionText;
+        }
+
+        return dialog;
+    }
+
     private async Task<bool> CreatePreUpdateRecoverySnapshotAsync()
     {
         try
         {
-            await App.Current.SettingsService.SaveAsync(notifySubscribers: false);
-            string? snapshotPath = await App.Current.DataBackupService.CreateAutomaticSnapshotNowAsync();
+            var result = await _backupCommands.CreateSnapshotNowAsync();
+            if (_isClosed || _backupCommands.IsStopping) return false;
+            string? snapshotPath = result.ArchivePath;
             if (!string.IsNullOrWhiteSpace(snapshotPath))
             {
                 return true;
@@ -527,9 +507,11 @@ public sealed partial class SettingsWindow
                 _localizationService.T("Settings.Update.PreUpdateBackupFailedTitle"),
                 _localizationService.T("Settings.Update.PreUpdateBackupFailedBody"));
         }
+        catch (OperationCanceledException) when (_backupCommands.IsStopping) { }
         catch (Exception ex)
         {
             App.Log($"[Update] Failed to create pre-update recovery snapshot: {ex}");
+            if (_isClosed || _backupCommands.IsStopping) return false;
             await ShowInfoDialogAsync(
                 _localizationService.T("Settings.Update.PreUpdateBackupFailedTitle"),
                 _localizationService.Format("Settings.Update.PreUpdateBackupFailedBodyWithError", ex.Message));
@@ -550,6 +532,34 @@ public sealed partial class SettingsWindow
         {
             Win32Helper.OpenFile(url);
         }
+    }
+
+    private void DismissUpdateActivity_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.DismissUpdateActivity();
+    }
+
+    /// <summary>
+    /// Scrolls the update status card into view. Called after the tray and
+    /// toast paths land on the About section so the update entry point is on
+    /// screen without hunting for it.
+    /// </summary>
+    public void BringUpdateStatusIntoView()
+    {
+        if (_isClosed)
+        {
+            return;
+        }
+
+        // Section navigation may still be mid-layout; a queued pass runs
+        // after the frame has composed the target panel.
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_isClosed)
+            {
+                UpdateCheckActionsPanel.StartBringIntoView();
+            }
+        });
     }
 
     public void QueueUpdateInstallResultDialog(string outcome)
@@ -587,7 +597,10 @@ public sealed partial class SettingsWindow
                 ? "Settings.Update.InstallPathMismatchBody"
                 : "Settings.Update.InstallFailedBody";
 
-        var dialog = new ContentDialog
+        // Queued from the updater process exit path, so it can land while a
+        // user dialog is open; route through the same coordinator as the
+        // download-failure retry dialog.
+        ContentDialogResult choice = await ShowDialogWhenFreeAsync(() => new ContentDialog
         {
             XamlRoot = SettingsRoot.XamlRoot,
             Title = _localizationService.T(titleKey),
@@ -597,11 +610,11 @@ public sealed partial class SettingsWindow
                 TextWrapping = TextWrapping.Wrap
             },
             PrimaryButtonText = ViewModel.UpdateFallbackActionText,
-            CloseButtonText = _localizationService.T("Common.Ok"),
+            CloseButtonText = _localizationService.T("Common.Close"),
             DefaultButton = ContentDialogButton.Close
-        };
+        });
 
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        if (choice == ContentDialogResult.Primary)
         {
             OpenManualUpdateDownload();
         }
@@ -609,18 +622,18 @@ public sealed partial class SettingsWindow
 
     private void ViewReleaseNotesButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!ViewModel.CanViewReleaseNotes || ViewModel.LatestUpdateManifest is not { } manifest)
-        {
-            return;
-        }
-
+        // The button is always visible: when no check has produced a
+        // manifest yet the window still opens and resolves its manifest
+        // lazily inside itself.
+        AppUpdateManifest? manifest = ViewModel.LatestUpdateManifest;
         if (_releaseNotesWindow is null)
         {
             var releaseNotesWindow = new ReleaseNotesWindow(
                 manifest,
                 ViewModel.AppVersion,
                 _themeService,
-                _localizationService);
+                _localizationService,
+                manifest is null ? ViewModel.FetchLatestManifestForReleaseNotesAsync : null);
             _releaseNotesWindow = releaseNotesWindow;
             releaseNotesWindow.Closed += (_, _) =>
             {
@@ -630,9 +643,13 @@ public sealed partial class SettingsWindow
                 }
             };
         }
-        else
+        else if (manifest is not null)
         {
             _releaseNotesWindow.UpdateManifest(manifest, ViewModel.AppVersion);
+        }
+        else
+        {
+            _releaseNotesWindow.RetryManifestLoad();
         }
 
         _releaseNotesWindow.ShowWindow(_hWnd);

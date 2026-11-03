@@ -1,4 +1,4 @@
-using DeskBox.Services;
+﻿using DeskBox.Services;
 
 namespace DeskBox.Tests;
 
@@ -101,10 +101,12 @@ public sealed class SolidColorBackdropTests
         string compatibility = File.ReadAllText(TestPaths.FromRepository(
             "src/DeskBox/Services/WindowsCompatibilityService.cs"));
 
-        Assert.Contains("WindowsCompatibilityService.IsWindows11OrLater", featureOptions, StringComparison.Ordinal);
-        Assert.Contains("[MaterialAcrylic, MaterialAcrylicBase, MaterialSolid]", featureOptions, StringComparison.Ordinal);
-        Assert.Contains("IsOpen=\"{Binding IsWindows10VisualCompatibilityMode}\"", settingsWindow, StringComparison.Ordinal);
-        Assert.Contains("IsEnabled=\"{Binding SupportsNativeWidgetCorners}\"", settingsWindow, StringComparison.Ordinal);
+        string appearanceOptions = File.ReadAllText(TestPaths.FromRepository(
+            "src/DeskBox/ViewModels/SettingsViewModel.AppearanceOptions.cs"));
+        Assert.Contains("WindowsCompatibilityService.IsWindows11OrLater", appearanceOptions, StringComparison.Ordinal);
+        Assert.Contains("SettingsService.WidgetMaterialTypeSolid", appearanceOptions, StringComparison.Ordinal);
+        Assert.Contains("IsOpen=\"{Binding Windows10Compatibility}\"", settingsWindow, StringComparison.Ordinal);
+        Assert.Contains("IsEnabled=\"{Binding NativeCornersSupported}\"", settingsWindow, StringComparison.Ordinal);
         Assert.Contains("ResolveWidgetMaterialType", backdrop, StringComparison.Ordinal);
         Assert.Contains("ApplyAcrylicController", backdrop, StringComparison.Ordinal);
         Assert.Contains("WindowsCompatibilityService.SupportsDesktopAcrylic", backdrop, StringComparison.Ordinal);
@@ -124,7 +126,6 @@ public sealed class SolidColorBackdropTests
         string baseWindow = File.ReadAllText(TestPaths.FromRepository("src/DeskBox/Views/WidgetWindowBase.cs"));
         string backdrop = File.ReadAllText(TestPaths.FromRepository("src/DeskBox/Views/WidgetWindowBase.Backdrop.cs"));
         string contentWindow = File.ReadAllText(TestPaths.FromRepository("src/DeskBox/Views/ContentWidgetWindow.xaml.cs"));
-        string quickCapture = File.ReadAllText(TestPaths.FromRepository("src/DeskBox/Views/QuickCaptureWidgetWindow.Appearance.cs"));
 
         Assert.Contains("<PackageReference Include=\"WinUIEx\" Version=\"2.9.3\" />", project, StringComparison.Ordinal);
         Assert.Contains("WinUIEx.TransparentTintBackdrop? _solidColorBackdrop", baseWindow, StringComparison.Ordinal);
@@ -132,7 +133,6 @@ public sealed class SolidColorBackdropTests
         Assert.Contains("SystemBackdrop = _solidColorBackdrop", backdrop, StringComparison.Ordinal);
         Assert.Contains("ClearSolidColorBackdrop();", baseWindow, StringComparison.Ordinal);
         Assert.Contains("!IsSolidColorBackdropActive", contentWindow, StringComparison.Ordinal);
-        Assert.Contains("!IsSolidColorBackdropActive", quickCapture, StringComparison.Ordinal);
         Assert.DoesNotContain("ApplyTransparentAcrylicController", backdrop, StringComparison.Ordinal);
     }
 }

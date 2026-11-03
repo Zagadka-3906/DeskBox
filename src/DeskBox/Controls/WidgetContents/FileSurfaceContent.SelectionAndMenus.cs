@@ -11,8 +11,6 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
-using Windows.Storage.Pickers;
-using WinRT.Interop;
 
 namespace DeskBox.Controls.WidgetContents;
 
@@ -25,6 +23,9 @@ public sealed partial class FileSurfaceContent
 
     private bool _selectionPointerPressed;
     private bool _isBoxSelecting;
+    private bool _selectionStartedWithRightButton;
+    private bool _selectionPressOnRowBlank;
+    private bool _suppressNextRightTap;
     private bool _isSynchronizingSelection;
     private Windows.Foundation.Point _selectionStartPoint;
     private Windows.Foundation.Point _selectionCurrentPoint;
@@ -47,13 +48,25 @@ public sealed partial class FileSurfaceContent
         UIElement pointerSurface,
         PointerRoutedEventArgs e)
     {
-        if (!e.GetCurrentPoint(pointerSurface).Properties.IsLeftButtonPressed ||
+        // A stale one-shot suppress must never eat the next gesture.
+        _suppressNextRightTap = false;
+
+        bool isLeftButtonPressed =
+            e.GetCurrentPoint(pointerSurface).Properties.IsLeftButtonPressed;
+        bool isRightButtonPressed =
+            e.GetCurrentPoint(pointerSurface).Properties.IsRightButtonPressed;
+        _selectionPressOnRowBlank = false;
+        if ((!isLeftButtonPressed && !isRightButtonPressed) ||
             Win32Helper.IsKeyPressed(Windows.System.VirtualKey.Shift) ||
-            !CanStartBoxSelection(e.OriginalSource))
+            !CanStartBoxSelection(e.OriginalSource, e))
         {
             return;
         }
 
+        // The right button joins Explorer's marquee: right-drag on blank
+        // space sweeps a selection, and the release opens the context menu
+        // for whatever it caught (blank-area menu when it caught nothing).
+        _selectionStartedWithRightButton = isRightButtonPressed;
         if (ReferenceEquals(listView, _stackPopoverItemsView))
         {
             listView.Focus(FocusState.Programmatic);
@@ -142,12 +155,41 @@ public sealed partial class FileSurfaceContent
         PointerRoutedEventArgs e)
     {
         bool wasBoxSelecting = _isBoxSelecting;
+        bool completedRightMarquee =
+            wasBoxSelecting && _selectionStartedWithRightButton;
         FinishBoxSelection(listView);
         _pendingPointerDragItems = [];
+        _selectionStartedWithRightButton = false;
+        _selectionPressOnRowBlank = false;
         if (wasBoxSelecting)
         {
             pointerSurface.ReleasePointerCapture(e.Pointer);
             e.Handled = true;
+        }
+
+        if (completedRightMarquee)
+        {
+            // Explorer: the right-button marquee ends by opening the
+            // context menu for the swept selection at the release point —
+            // the blank-area menu when the sweep caught nothing. The menu
+            // is placed through the view that hosts the items (the popover
+            // menu path keys off that view), and a possible duplicate
+            // RightTapped is swallowed by the one-shot suppress.
+            _suppressNextRightTap = true;
+            WidgetItem? selectionAnchor = GetSelectedItems().FirstOrDefault();
+            if (selectionAnchor is not null)
+            {
+                ShowItemContextMenuForSelection(
+                    listView,
+                    selectionAnchor,
+                    target => e.GetCurrentPoint(target).Position);
+            }
+            else
+            {
+                ShowContentAreaFlyoutAt(
+                    listView,
+                    target => e.GetCurrentPoint(target).Position);
+            }
         }
     }
 
@@ -157,7 +199,7 @@ public sealed partial class FileSurfaceContent
     {
         if (sender is ListViewBase listView)
         {
-            FinishBoxSelection(listView);
+            HandleItemsPointerCaptureLost(listView);
         }
     }
 
@@ -171,17 +213,40 @@ public sealed partial class FileSurfaceContent
         _pendingPointerDragItems = [];
     }
 
-    private bool CanStartBoxSelection(object? originalSource)
+    private bool CanStartBoxSelection(
+        object? originalSource,
+        PointerRoutedEventArgs e)
     {
         if (originalSource is not DependencyObject source)
         {
             return false;
         }
 
+        if (FileItemSelectionGeometry.HasAncestor<ScrollBar>(source) ||
+            FileItemSelectionGeometry.HasAncestor<ButtonBase>(source) ||
+            FileItemSelectionGeometry.HasAncestor<TextBox>(source))
+        {
+            return false;
+        }
+
+        // A list row's blank remainder (outside the icon+label block) is
+        // blank surface for the marquee — Explorer starts its rubber band
+        // there for BOTH buttons, and a full list has no true blank left
+        // to start from. A left press on row blank keeps Explorer's click
+        // semantics: the view's built-in click still selects the row on
+        // release, and the item-container drag is cancelled while the
+        // marquee is pending (see Items_DragStarting). The primary
+        // icon+label block stays item territory for both buttons.
+        if (FindItemSurface(source) is { } surface)
+        {
+            _selectionPressOnRowBlank = surface.IsListMode &&
+                !surface.IsPointWithinListPrimaryContent(
+                    e.GetCurrentPoint(surface).Position);
+            return _selectionPressOnRowBlank;
+        }
+
         return !FileItemSelectionGeometry.IsWithinItemSurface(source) &&
-               !FileItemSelectionGeometry.HasAncestor<ScrollBar>(source) &&
-               !FileItemSelectionGeometry.HasAncestor<ButtonBase>(source) &&
-               !FileItemSelectionGeometry.HasAncestor<TextBox>(source);
+               !FileItemSelectionGeometry.HasAncestor<SelectorItem>(source);
     }
 
     private void CacheSelectionHits(
@@ -413,6 +478,30 @@ public sealed partial class FileSurfaceContent
         return FindItemElement(source)?.DataContext as WidgetItem;
     }
 
+    /// <summary>
+    /// The enclosing item surface, or null on true blank space. A type
+    /// walk, deliberately NOT <see cref="FindItemElement"/>: every element
+    /// inside a row inherits the WidgetItem DataContext, so the
+    /// DataContext-based walk stops at the innermost hit element and can
+    /// never return the surface itself (which silently disabled the list
+    /// right-click zone until this helper existed).
+    /// </summary>
+    private static FileItemSurface? FindItemSurface(object? source)
+    {
+        DependencyObject? current = source as DependencyObject;
+        while (current is not null)
+        {
+            if (current is FileItemSurface surface)
+            {
+                return surface;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
     private static FrameworkElement? FindItemElement(object? source)
     {
         DependencyObject? current = source as DependencyObject;
@@ -449,6 +538,7 @@ public sealed partial class FileSurfaceContent
     {
         return new FileItemMenuActions(
             CreateMenuItem,
+            T,
             ActivateItemAsync,
             cut => RunAsync(
                 () => CopySelectionToClipboardAsync(cut)),
@@ -491,7 +581,255 @@ public sealed partial class FileSurfaceContent
             ClearSelection,
             ShowSystemContextMenuAsync,
             ElevatedFileLauncher.CanRunAsAdministrator,
-            RunAsAdministratorAsync);
+            RunAsAdministratorAsync,
+            GetOpenWithMenuItems: GetOpenWithMenuItems,
+            CanExtractArchiveItem,
+            ExtractArchiveItemAsync,
+            CanCompressSelection,
+            CompressSelectionAsync,
+            CreateItemShortcutAsync: CreateItemShortcutAsync,
+            EmptyRecycleBinAsync: EmptyRecycleBinAsync);
+    }
+
+    private OpenWithMenuPayload? GetOpenWithMenuItems(WidgetItem item)
+    {
+        if (item.IsFolder ||
+            !ShellOpenWithHelper.SupportsOpenWith(item.Path))
+        {
+            return null;
+        }
+
+        List<OpenWithHandlerEntry> apps;
+        try
+        {
+            apps = ShellOpenWithHelper.GetRecommendedApps(item.Path)
+                .ToList();
+        }
+        catch
+        {
+            apps = [];
+        }
+
+        var items = new List<MenuFlyoutItemBase>();
+        foreach (OpenWithHandlerEntry app in apps)
+        {
+            OpenWithHandlerEntry captured = app;
+            var appItem = new MenuFlyoutItem { Text = captured.UiName };
+            appItem.Click += (_, _) =>
+            {
+                if (!captured.TryInvoke(item.Path))
+                {
+                    ShowFeedback(new WidgetFeedbackRequest(
+                        T("Widget.Error.OperationIncomplete"),
+                        WidgetFeedbackSeverity.Warning,
+                        "open-with"));
+                }
+            };
+            items.Add(appItem);
+        }
+
+        if (apps.Count > 0)
+        {
+            items.Add(new MenuFlyoutSeparator());
+        }
+
+        var chooseApp = new MenuFlyoutItem
+        {
+            Text = T("Widget.OpenWith.ChooseApp"),
+            Icon = new FontIcon { Glyph = "" }
+        };
+        chooseApp.Click += (_, _) =>
+        {
+            if (!ShellOpenWithHelper.ShowChooseAppDialog(
+                    _hostWindowHandle,
+                    item.Path))
+            {
+                ShowFeedback(new WidgetFeedbackRequest(
+                    T("Widget.Error.OperationIncomplete"),
+                    WidgetFeedbackSeverity.Warning,
+                    "open-with-choose"));
+            }
+        };
+        items.Add(chooseApp);
+
+        // The Shell association handlers behind the entries must stay alive
+        // until the submenu round ends (idempotent for the two close paths).
+        bool disposed = false;
+
+        // Prefetch app icons in the background: extraction starts the moment
+        // the menu is built (right-click), so by the time the user hovers
+        // Open With the icons are already decoded — opening the menu itself
+        // never waits on icon I/O. Entries without an icon location stay
+        // text-only, matching the native menu's tolerance.
+        if (apps.Count > 0 &&
+            Root.DispatcherQueue is { } iconDispatcher)
+        {
+            var iconPairs = new List<(MenuFlyoutItem Item, OpenWithHandlerEntry App)>();
+            int appIndex = 0;
+            foreach (MenuFlyoutItemBase entry in items)
+            {
+                if (entry is MenuFlyoutItem menuItem &&
+                    appIndex < apps.Count &&
+                    apps[appIndex].IconSourcePath is not null)
+                {
+                    iconPairs.Add((menuItem, apps[appIndex]));
+                }
+
+                if (entry is MenuFlyoutItem)
+                {
+                    appIndex++;
+                }
+            }
+
+            if (iconPairs.Count > 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    foreach ((MenuFlyoutItem item2, OpenWithHandlerEntry app)
+                             in iconPairs)
+                    {
+                        if (disposed)
+                        {
+                            return;
+                        }
+
+                        byte[]? png = await Task.Run(() =>
+                            IconHelper.GetIndexedIconPngBytes(
+                                app.IconSourcePath!,
+                                app.IconSourceIndex,
+                                20));
+                        if (png is null || disposed)
+                        {
+                            continue;
+                        }
+
+                        Microsoft.UI.Xaml.Media.Imaging.BitmapImage? image =
+                            await IconHelper.CreateBitmapImageAsync(
+                                iconDispatcher,
+                                png,
+                                20);
+                        if (image is null || disposed)
+                        {
+                            continue;
+                        }
+
+                        iconDispatcher.TryEnqueue(() =>
+                        {
+                            if (disposed)
+                            {
+                                return;
+                            }
+
+                            item2.Icon = new ImageIcon { Source = image };
+                        });
+                    }
+                });
+            }
+        }
+
+        return new OpenWithMenuPayload(
+            items,
+            () =>
+            {
+                if (disposed)
+                {
+                    return;
+                }
+
+                disposed = true;
+                foreach (OpenWithHandlerEntry app in apps)
+                {
+                    app.Dispose();
+                }
+            });
+    }
+
+    private static bool CanExtractArchiveItem(WidgetItem item) =>
+        !item.IsFolder &&
+        string.Equals(
+            Path.GetExtension(item.Path),
+            ".zip",
+            StringComparison.OrdinalIgnoreCase);
+
+    private async Task ExtractArchiveItemAsync(WidgetItem item)
+    {
+        string? folderPath = ViewModel.CurrentFolderPath;
+        if (string.IsNullOrWhiteSpace(folderPath) ||
+            TryBlockTransferOpen(item) ||
+            TryBlockTransferMutation(folderPath))
+        {
+            return;
+        }
+
+        try
+        {
+            string destination = await ArchiveZipService.ExtractAllAsync(
+                item.Path);
+            _ = destination;
+            await RunAsync(() => ViewModel.RefreshFolderContentsAsync());
+        }
+        catch (Exception ex)
+        {
+            App.Log(
+                $"[ArchiveZip] extract failed widget={WidgetId} " +
+                $"archive='{item.Path}': {ex.Message}");
+            ShowFeedback(new WidgetFeedbackRequest(
+                T("Widget.Zip.ExtractFailed"),
+                WidgetFeedbackSeverity.Warning,
+                "extract-zip"));
+        }
+    }
+
+    private static bool CanCompressSelection(
+        IReadOnlyList<WidgetItem> items)
+    {
+        if (items.Count == 0)
+        {
+            return false;
+        }
+
+        // Compressing an archive itself is a no-op almost nobody wants;
+        // Explorer still offers it, the grid keeps the menu lean.
+        bool singleZipArchive = items.Count == 1 &&
+            string.Equals(
+                Path.GetExtension(items[0].Path),
+                ".zip",
+                StringComparison.OrdinalIgnoreCase);
+        return !singleZipArchive && items.All(item =>
+            !string.IsNullOrWhiteSpace(item.Path));
+    }
+
+    private async Task CompressSelectionAsync(
+        IReadOnlyList<WidgetItem> items,
+        ArchiveCompressionFormat format)
+    {
+        List<WidgetItem> selection = items
+            .Where(item => !string.IsNullOrWhiteSpace(item.Path))
+            .ToList();
+        if (selection.Count == 0 ||
+            TryBlockTransferMutation(selection))
+        {
+            return;
+        }
+
+        try
+        {
+            string archivePath = await ArchiveZipService.CompressAsync(
+                selection.Select(item => item.Path).ToList(),
+                format);
+            _ = archivePath;
+            await RunAsync(() => ViewModel.RefreshFolderContentsAsync());
+        }
+        catch (Exception ex)
+        {
+            App.Log(
+                $"[ArchiveZip] compress failed widget={WidgetId}: " +
+                ex.Message);
+            ShowFeedback(new WidgetFeedbackRequest(
+                T("Widget.Zip.CompressFailed"),
+                WidgetFeedbackSeverity.Warning,
+                "compress-zip"));
+        }
     }
 
     private void ShowFileProperties(WidgetItem item)
@@ -512,6 +850,141 @@ public sealed partial class FileSurfaceContent
         }
     }
 
+    /// <summary>
+    /// Native "Create shortcut" verb: a new "name - Shortcut.lnk" beside the
+    /// item, matching Explorer. Namespace links re-materialize the same
+    /// namespace target; every other item gets a link pointing at the item
+    /// itself (a link source nests exactly the way Explorer's verb does, and
+    /// Windows resolves the chain on open).
+    /// </summary>
+    private async Task CreateItemShortcutAsync(WidgetItem item)
+    {
+        if (TryBlockTransferMutation(new[] { item }))
+        {
+            return;
+        }
+
+        try
+        {
+            string? directory = Path.GetDirectoryName(item.Path);
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return;
+            }
+
+            string linkPath = FileService.GetAvailablePath(
+                Path.Combine(directory, GetShortcutDisplayName(item.Path)));
+
+            if (item.NamespaceShortcutKind != NamespaceShortcutKind.None &&
+                !string.IsNullOrWhiteSpace(item.NamespaceShortcutParsingName))
+            {
+                ShortcutHelper.CreateShellNamespaceShortcut(
+                    linkPath,
+                    item.NamespaceShortcutParsingName,
+                    T("Widget.CreateShortcut"));
+            }
+            else if (Directory.Exists(item.Path))
+            {
+                ShortcutHelper.CreateOrUpdateFolderShortcut(
+                    linkPath,
+                    item.Path,
+                    T("Widget.CreateShortcut"));
+            }
+            else
+            {
+                // No icon override: the system renders the target's own icon
+                // with the shortcut overlay, matching Explorer's native verb.
+                DragDropPermissionService.CreateOrUpdateShortcut(
+                    linkPath,
+                    item.Path,
+                    string.Empty,
+                    iconPath: null);
+            }
+
+            await RunAsync(() => ViewModel.RefreshFolderContentsAsync());
+        }
+        catch (Exception ex)
+        {
+            App.Log(
+                $"[CreateShortcut] failed widget={WidgetId} " +
+                $"source={item.Path}: {ex.Message}");
+            ShowFeedback(new WidgetFeedbackRequest(
+                T("Widget.Error.OperationIncomplete"),
+                WidgetFeedbackSeverity.Warning,
+                "create-shortcut"));
+        }
+    }
+
+    /// <summary>
+    /// Empty Recycle Bin for the bin's namespace shortcut — the desktop
+    /// icon's own verb, with the system's confirmation and progress dialogs
+    /// (flags 0). A bin emptied between the menu check and the click no-ops
+    /// instead of popping the dialog for nothing.
+    /// </summary>
+    private async Task EmptyRecycleBinAsync()
+    {
+        try
+        {
+            if (ShellRecycleBinInterop.TryQueryTotalItemCount(out long totalItems) &&
+                totalItems == 0)
+            {
+                return;
+            }
+
+            if (!ShellRecycleBinInterop.TryEmptyAllBins(_hostWindowHandle))
+            {
+                ShowFeedback(new WidgetFeedbackRequest(
+                    T("Widget.Error.OperationIncomplete"),
+                    WidgetFeedbackSeverity.Warning,
+                    "empty-recycle-bin"));
+                return;
+            }
+
+            // The bin just emptied: its state-aware icon (empty vs. full
+            // graphic for the same PIDL) must re-render even though the
+            // shortcut file never changed.
+            await RefreshRecycleBinItemIconsAsync();
+        }
+        catch (Exception ex)
+        {
+            App.Log(
+                $"[EmptyRecycleBin] failed widget={WidgetId}: {ex.Message}");
+            ShowFeedback(new WidgetFeedbackRequest(
+                T("Widget.Error.OperationIncomplete"),
+                WidgetFeedbackSeverity.Warning,
+                "empty-recycle-bin"));
+        }
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The popover is a no-activate window: DeskBox is not the foreground
+    /// process at right-click, which voids the AllowSetForegroundWindow
+    /// grant the native proxy needs for its menu — the menu tracked beneath
+    /// the popover and died on the next click (1.5.9 Win10 VM acceptance
+    /// 2026-10-20, fg=0 in the proxy timing log; main-surface menus all
+    /// ran fg=1). The right-click is the last input event, so the transfer
+    /// to the popover is permitted; the grant issued inside ShowAsync then
+    /// becomes effective and the menu lands above the popover.
+    /// </summary>
+    private void TryBringStackPopoverToForeground()
+    {
+        try
+        {
+            if (_stackPopoverHostWindow is { WindowHandle: var handle } &&
+                handle != IntPtr.Zero)
+            {
+                _ = Win32Helper.SetForegroundWindow(handle);
+            }
+        }
+        catch
+        {
+            // Best-effort: without the transfer the menu still opens, it
+            // just keeps the background-owner dismissal quirks.
+        }
+    }
+
     private async Task ShowSystemContextMenuAsync(WidgetItem item)
     {
         if (TryBlockTransferOpen(item))
@@ -529,6 +1002,7 @@ public sealed partial class FileSurfaceContent
             // proxy-owned HWND.
             _stackPopoverContextMenuOpen = true;
             _stackPopoverSystemContextMenuOpen = true;
+            TryBringStackPopoverToForeground();
         }
 
         try
@@ -539,11 +1013,22 @@ public sealed partial class FileSurfaceContent
                 await ShellContextMenuProxy.ShowAsync(
                     item.Path,
                     screenX,
-                    screenY);
-            if (result == ShellContextMenuProxy.MenuResult.Failed)
+                    screenY,
+                    // The native proxy has no resources of its own; the host
+                    // labels the rename entry it injects into the Shell menu.
+                    T("Common.Rename"));
+            if (result == ShellContextMenuProxy.MenuResult.CustomRename)
+            {
+                // The user picked the host-owned rename entry (a view-host
+                // verb the pure Shell menu cannot offer); run the built-in
+                // rename pipeline, the same one the WinUI flyout uses.
+                await RenameItemAsync(item);
+            }
+            else if (result != ShellContextMenuProxy.MenuResult.Invoked &&
+                result != ShellContextMenuProxy.MenuResult.Cancelled)
             {
                 ShowFeedback(new WidgetFeedbackRequest(
-                    T("Widget.Error.OperationIncomplete"),
+                    SystemMenuFailureText(result),
                     WidgetFeedbackSeverity.Warning,
                     "system-context-menu"));
             }
@@ -566,6 +1051,36 @@ public sealed partial class FileSurfaceContent
                 _stackPopoverSystemContextMenuOpen = false;
                 CompleteStackPopoverContextMenu();
             }
+        }
+    }
+
+    /// <summary>
+    /// Failure text for a native Shell menu round. InvokeCommand failures are
+    /// classified by the proxy (unsupported verb, cancellation, permission)
+    /// so the toast can say what happened instead of a generic "did not
+    /// complete" for every HRESULT.
+    /// </summary>
+    private static string SystemMenuFailureText(
+        ShellContextMenuProxy.MenuResult result) => result switch
+    {
+        ShellContextMenuProxy.MenuResult.FailedUnsupported =>
+            LocalizeSystemMenuText("Widget.SystemMenu.Unsupported"),
+        ShellContextMenuProxy.MenuResult.FailedCancelled =>
+            LocalizeSystemMenuText("Widget.SystemMenu.Cancelled"),
+        ShellContextMenuProxy.MenuResult.FailedAccessDenied =>
+            LocalizeSystemMenuText("Widget.SystemMenu.AccessDenied"),
+        _ => LocalizeSystemMenuText("Widget.Error.OperationIncomplete")
+    };
+
+    private static string LocalizeSystemMenuText(string key)
+    {
+        try
+        {
+            return global::DeskBox.App.Current?.LocalizationService?.T(key) ?? key;
+        }
+        catch
+        {
+            return key;
         }
     }
 
@@ -664,10 +1179,80 @@ public sealed partial class FileSurfaceContent
 
     private MenuFlyout CreateContentAreaFlyout()
     {
-        var flyout = new MenuFlyout();
+        var flyout = new MenuFlyout
+        {
+            // Monitor-bounds-only placement (see FileItemMenuBuilder): the
+            // grid window is too small to host the menu near its edges.
+            ShouldConstrainToRootBounds = false
+        };
         string? mappedFolderPath = ViewModel.CurrentFolderPath;
         bool hasMappedFolder =
             !string.IsNullOrWhiteSpace(mappedFolderPath);
+
+        var hostItems = new WidgetHostContextMenuOpeningEventArgs(flyout);
+        HostContextMenuOpening?.Invoke(this, hostItems);
+
+        var view = new MenuFlyoutSubItem
+        {
+            Text = T("Widget.View"),
+            Icon = new FontIcon { Glyph = "\uE8CB" }
+        };
+        var iconView = new ToggleMenuFlyoutItem
+        {
+            Text = T("Widget.IconView"),
+            IsChecked = ViewModel.IsIconMode
+        };
+        iconView.Click += (_, _) =>
+        {
+            if (!ViewModel.IsIconMode)
+            {
+                ToggleViewButton_Click(this, new RoutedEventArgs());
+            }
+        };
+        view.Items.Add(iconView);
+
+        var listView = new ToggleMenuFlyoutItem
+        {
+            Text = T("Widget.ListView"),
+            IsChecked = ViewModel.IsListMode
+        };
+        listView.Click += (_, _) =>
+        {
+            if (!ViewModel.IsListMode)
+            {
+                ToggleViewButton_Click(this, new RoutedEventArgs());
+            }
+        };
+        view.Items.Add(listView);
+        view.Items.Add(CreateIconSizeMenu());
+        flyout.Items.Add(view);
+
+        var sortBy = new MenuFlyoutSubItem
+        {
+            Text = T("Widget.SortBy"),
+            Icon = new FontIcon { Glyph = "\uE8CB" }
+        };
+        AddSortItem(
+            sortBy,
+            "Widget.Sort.Manual",
+            WidgetSortMode.Manual);
+        AddSortItem(
+            sortBy,
+            "Widget.Sort.Name",
+            WidgetSortMode.Name);
+        AddSortItem(
+            sortBy,
+            "Widget.Sort.Size",
+            WidgetSortMode.Size);
+        AddSortItem(
+            sortBy,
+            "Widget.Sort.Type",
+            WidgetSortMode.Type);
+        AddSortItem(
+            sortBy,
+            "Widget.Sort.DateModified",
+            WidgetSortMode.DateModified);
+        flyout.Items.Add(sortBy);
 
         MenuFlyoutItem refresh =
             CreateMenuItem("Common.Refresh", "\uE72C");
@@ -678,6 +1263,8 @@ public sealed partial class FileSurfaceContent
             await RunAsync(RefreshAsync);
         };
         flyout.Items.Add(refresh);
+
+        flyout.Items.Add(new MenuFlyoutSeparator());
 
         MenuFlyoutItem paste =
             CreateMenuItem("Common.Paste", "\uE77F");
@@ -690,16 +1277,17 @@ public sealed partial class FileSurfaceContent
         };
         flyout.Items.Add(paste);
 
-        MenuFlyoutItem newFolder =
-            CreateMenuItem("Common.NewFolder", "\uE8B7");
-        newFolder.KeyboardAcceleratorTextOverride = "Ctrl+Shift+N";
-        newFolder.IsEnabled = hasMappedFolder;
-        newFolder.Click += async (_, _) =>
+        flyout.Items.Add(new MenuFlyoutSeparator());
+
+        flyout.Items.Add(CreateNewSubMenu(hasMappedFolder));
+
+        flyout.Items.Add(new MenuFlyoutSeparator());
+
+        if (hostItems.TitleStyleItem is not null)
         {
-            flyout.Hide();
-            await CreateFolderInMappedLocationAsync();
-        };
-        flyout.Items.Add(newFolder);
+            flyout.Items.Add(hostItems.TitleStyleItem);
+        }
+        flyout.Items.Add(CreateStackSettingsMenu());
 
         MenuFlyoutItem openFolder = CreateMenuItem(
             "Widget.OpenStorageFolder",
@@ -724,76 +1312,210 @@ public sealed partial class FileSurfaceContent
         };
         flyout.Items.Add(openFolder);
 
-        var hostItems = new WidgetHostContextMenuOpeningEventArgs(flyout);
-        HostContextMenuOpening?.Invoke(this, hostItems);
-        if (hostItems.TitleStyleItem is not null)
-        {
-            flyout.Items.Add(hostItems.TitleStyleItem);
-        }
-
-        var viewAndSort = new MenuFlyoutSubItem
-        {
-            Text = T("Widget.ViewAndSort"),
-            Icon = new FontIcon { Glyph = "\uE8CB" }
-        };
-        var iconView = new ToggleMenuFlyoutItem
-        {
-            Text = T("Widget.IconView"),
-            IsChecked = ViewModel.IsIconMode
-        };
-        iconView.Click += (_, _) =>
-        {
-            if (!ViewModel.IsIconMode)
-            {
-                ToggleViewButton_Click(this, new RoutedEventArgs());
-            }
-        };
-        viewAndSort.Items.Add(iconView);
-
-        var listView = new ToggleMenuFlyoutItem
-        {
-            Text = T("Widget.ListView"),
-            IsChecked = ViewModel.IsListMode
-        };
-        listView.Click += (_, _) =>
-        {
-            if (!ViewModel.IsListMode)
-            {
-                ToggleViewButton_Click(this, new RoutedEventArgs());
-            }
-        };
-        viewAndSort.Items.Add(listView);
-        viewAndSort.Items.Add(CreateIconSizeMenu());
-        viewAndSort.Items.Add(new MenuFlyoutSeparator());
-        AddSortItem(
-            viewAndSort,
-            "Widget.Sort.Manual",
-            WidgetSortMode.Manual);
-        AddSortItem(
-            viewAndSort,
-            "Widget.Sort.Name",
-            WidgetSortMode.Name);
-        AddSortItem(
-            viewAndSort,
-            "Widget.Sort.Size",
-            WidgetSortMode.Size);
-        AddSortItem(
-            viewAndSort,
-            "Widget.Sort.Type",
-            WidgetSortMode.Type);
-        AddSortItem(
-            viewAndSort,
-            "Widget.Sort.DateModified",
-            WidgetSortMode.DateModified);
-        flyout.Items.Add(viewAndSort);
-        flyout.Items.Add(CreateStackSettingsMenu());
-
         if (hostItems.CloseWidgetItem is not null)
         {
             flyout.Items.Add(new MenuFlyoutSeparator());
             flyout.Items.Add(hostItems.CloseWidgetItem);
         }
         return flyout;
+    }
+
+    private MenuFlyoutSubItem CreateNewSubMenu(bool hasMappedFolder)
+    {
+        var menu = new MenuFlyoutSubItem
+        {
+            Text = T("Widget.New"),
+            Icon = new FontIcon { Glyph = "\uE710" }
+        };
+
+        MenuFlyoutItem newFolder =
+            CreateMenuItem("Common.NewFolder", "\uE8B7");
+        newFolder.KeyboardAcceleratorTextOverride = "Ctrl+Shift+N";
+        newFolder.IsEnabled = hasMappedFolder;
+        newFolder.Click += async (_, _) =>
+        {
+            await CreateFolderInMappedLocationAsync();
+        };
+        menu.Items.Add(newFolder);
+
+        var iconTargets =
+            new List<(MenuFlyoutItem Item, string ProbeFileName)>();
+
+        if (hasMappedFolder)
+        {
+            // Second pinned row, exactly like Explorer: the label comes
+            // from the OS-localized .lnk ShellNew registration.
+            if (ShellNewMenuHelper.TryGetShortcutNewTemplate(
+                    out string shortcutText,
+                    out string? shortcutBase))
+            {
+                MenuFlyoutItem newShortcut = new()
+                {
+                    Text = shortcutText
+                };
+                newShortcut.Click += async (_, _) =>
+                {
+                    await CreateShortcutInMappedLocationAsync(
+                        shortcutBase ?? shortcutText);
+                };
+                menu.Items.Add(newShortcut);
+                iconTargets.Add((newShortcut, "new.lnk"));
+            }
+
+            IReadOnlyList<ShellNewEntry> entries = [];
+            try
+            {
+                entries = ShellNewMenuHelper.GetEntries();
+            }
+            catch
+            {
+                // The registry New list is best-effort; the pinned entries
+                // above still work without it.
+            }
+
+            if (entries.Count > 0)
+            {
+                // No separator: Explorer's New submenu runs folder, shortcut
+                // and file types as one flat list.
+                foreach (ShellNewEntry entry in entries)
+                {
+                    ShellNewEntry captured = entry;
+                    var newItem = new MenuFlyoutItem
+                    {
+                        Text = captured.DisplayName
+                    };
+                    newItem.Click += async (_, _) =>
+                    {
+                        await CreateFileFromShellNewEntryAsync(captured);
+                    };
+                    menu.Items.Add(newItem);
+                    iconTargets.Add((newItem, "new" + captured.Extension));
+                }
+            }
+        }
+
+        PrefetchNewEntryIcons(iconTargets);
+
+        return menu;
+    }
+
+    /// <summary>
+    /// Fills the New submenu entries with their file-type icons in the
+    /// background (same pattern as the Open With app icons): the shell is
+    /// only asked for the type's icon by extension, and the menu stays
+    /// responsive while the icons stream in. Entries without a type icon
+    /// stay text-only, matching the native menu's tolerance.
+    /// </summary>
+    private void PrefetchNewEntryIcons(
+        IReadOnlyList<(MenuFlyoutItem Item, string ProbeFileName)> targets)
+    {
+        if (targets.Count == 0 || Root.DispatcherQueue is not { } dispatcher)
+        {
+            return;
+        }
+
+        // No teardown flag: unlike the Open With prefetch, nothing here
+        // owns COM lifetimes — a late TryEnqueue after the flyout closed
+        // only touches an already-detached MenuFlyoutItem.
+        _ = Task.Run(async () =>
+        {
+            foreach ((MenuFlyoutItem item, string probeFileName) in targets)
+            {
+                byte[]? png = await Task.Run(() =>
+                    IconHelper.GetFileTypeIconPngBytes(probeFileName));
+                if (png is null)
+                {
+                    continue;
+                }
+
+                Microsoft.UI.Xaml.Media.Imaging.BitmapImage? image =
+                    await IconHelper.CreateBitmapImageAsync(
+                        dispatcher,
+                        png,
+                        20);
+                if (image is null)
+                {
+                    continue;
+                }
+
+                dispatcher.TryEnqueue(() =>
+                {
+                    item.Icon = new ImageIcon { Source = image };
+                });
+            }
+        });
+    }
+
+    private async Task CreateShortcutInMappedLocationAsync(string baseName)
+    {
+        string? folderPath = ViewModel.CurrentFolderPath;
+        if (string.IsNullOrWhiteSpace(folderPath) ||
+            TryBlockTransferMutation(folderPath))
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            string targetPath = FileService.GetAvailablePath(
+                Path.Combine(folderPath, baseName + ".lnk"));
+            if (!ShellLinkVtableInterop.TryCreateEmptyShortcut(targetPath))
+            {
+                ShowFeedback(new WidgetFeedbackRequest(
+                    T("Widget.Error.OperationIncomplete"),
+                    WidgetFeedbackSeverity.Warning,
+                    "new-shortcut"));
+                return;
+            }
+
+            await ViewModel.RefreshFolderContentsAsync();
+
+            // The placeholder has no target yet; the Properties sheet's
+            // Shortcut tab is where the user completes it (Explorer's own
+            // New→Shortcut uses its in-process wizard for the same step).
+            // Modal — the refresh below also picks up a rename made there.
+            _ = Win32Helper.ShowFileProperties(_hostWindowHandle, targetPath);
+            await ViewModel.RefreshFolderContentsAsync();
+        });
+    }
+
+    private async Task CreateFileFromShellNewEntryAsync(
+        ShellNewEntry entry)
+    {
+        string? folderPath = ViewModel.CurrentFolderPath;
+        if (string.IsNullOrWhiteSpace(folderPath) ||
+            TryBlockTransferMutation(folderPath))
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            string? createdPath = ShellNewMenuHelper.CreateFile(
+                entry,
+                folderPath,
+                name => _localizationService.Format(
+                    "Widget.NewFileName",
+                    name));
+            if (createdPath is null)
+            {
+                ShowFeedback(new WidgetFeedbackRequest(
+                    T("Widget.Error.OperationIncomplete"),
+                    WidgetFeedbackSeverity.Warning,
+                    "new-file"));
+                return;
+            }
+
+            await ViewModel.RefreshFolderContentsAsync();
+            if (ViewModel.Items.FirstOrDefault(item =>
+                    string.Equals(
+                        item.Path,
+                        createdPath,
+                        StringComparison.OrdinalIgnoreCase)) is { } newFile)
+            {
+                await StartItemRenameAsync(newFile);
+            }
+        });
     }
 
     private MenuFlyoutSubItem CreateIconSizeMenu()
@@ -855,31 +1577,6 @@ public sealed partial class FileSurfaceContent
                 await StartItemRenameAsync(newFolder);
             }
         });
-    }
-
-    private async Task PickMappedFolderAsync()
-    {
-        var picker = new FolderPicker
-        {
-            SuggestedStartLocation =
-                PickerLocationId.Desktop
-        };
-        picker.FileTypeFilter.Add("*");
-        IntPtr foreground = Win32Helper.GetForegroundWindow();
-        IntPtr owner = Win32Helper.GetAncestor(
-            foreground,
-            Win32Helper.GA_ROOT);
-        InitializeWithWindow.Initialize(
-            picker,
-            owner == IntPtr.Zero ? foreground : owner);
-        Windows.Storage.StorageFolder? folder =
-            await picker.PickSingleFolderAsync();
-        if (folder is not null)
-        {
-            await RunAsync(
-                () => ViewModel.UpdateMappedFolderPathAsync(
-                    folder.Path));
-        }
     }
 
     private void AddSortItem(
@@ -1179,7 +1876,11 @@ public sealed partial class FileSurfaceContent
 
     private MenuFlyout CreateStackFlyout(WidgetStackItem stack)
     {
-        var flyout = new MenuFlyout();
+        var flyout = new MenuFlyout
+        {
+            // Monitor-bounds-only placement, same as the other grid menus.
+            ShouldConstrainToRootBounds = false
+        };
         MenuFlyoutItem toggle = new()
         {
             Text = T(stack.IsExpanded

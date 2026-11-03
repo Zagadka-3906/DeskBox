@@ -6,22 +6,21 @@ public sealed class WidgetForegroundContractTests
     public void SettingsSurface_ExposesPaletteAndColorControlsWithoutTextEdge()
     {
         string xaml = Read("src/DeskBox/Views/SettingsWindow.xaml");
-        string bindable = Read(
-            "src/DeskBox/ViewModels/SettingsViewModel.AotBindableProperties.cs");
+        string bridge = Read(
+            "src/DeskBox/Features/Appearance/AppearanceSettingsViewModel.AotBindableProperties.cs");
 
-        Assert.Contains("AvailableWidgetForegroundModeOptions", xaml, StringComparison.Ordinal);
-        Assert.Contains("SelectedWidgetForegroundColor", xaml, StringComparison.Ordinal);
-        Assert.Contains("nameof(SelectedWidgetForegroundColor)", bindable, StringComparison.Ordinal);
+        Assert.Contains("AvailableForegroundModeOptions", xaml, StringComparison.Ordinal);
+        Assert.Contains("ForegroundColorHex", xaml, StringComparison.Ordinal);
+        Assert.Contains("nameof(ForegroundColorHex)", bridge, StringComparison.Ordinal);
         // The text edge experiment was removed in 1.5.1 (too many platform
         // traps for the value it added); nothing may quietly reintroduce a
         // shadow surface, host or setting.
         Assert.DoesNotContain("WidgetTextEdge", xaml, StringComparison.Ordinal);
-        Assert.DoesNotContain("WidgetTextEdge", bindable, StringComparison.Ordinal);
+        Assert.DoesNotContain("WidgetTextEdge", bridge, StringComparison.Ordinal);
     }
 
     [Theory]
     [InlineData("src/DeskBox/Views/ContentWidgetWindow.xaml")]
-    [InlineData("src/DeskBox/Views/QuickCaptureWidgetWindow.xaml")]
     public void WidgetRoots_ProvideLocalSemanticBrushesWithoutDetachedShadowHost(string path)
     {
         string xaml = Read(path);
@@ -62,15 +61,11 @@ public sealed class WidgetForegroundContractTests
     }
 
     [Fact]
-    public void BothWidgetMenus_ExposePerWidgetForegroundOverrides()
+    public void TheWidgetMenu_ExposesPerWidgetForegroundOverrides()
     {
         Assert.Contains(
             "WidgetForegroundMenuBuilder.Create",
             Read("src/DeskBox/Views/ContentWidgetWindow.Commands.cs"),
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "WidgetForegroundMenuBuilder.Create",
-            Read("src/DeskBox/Views/QuickCaptureWidgetWindow.Menus.cs"),
             StringComparison.Ordinal);
     }
 
@@ -124,7 +119,6 @@ public sealed class WidgetForegroundContractTests
 
     [Theory]
     [InlineData("src/DeskBox/Views/ContentWidgetWindow.xaml")]
-    [InlineData("src/DeskBox/Views/QuickCaptureWidgetWindow.xaml")]
     public void WidgetRoots_RedirectDefaultNativeTextStatesToLocalSemanticBrushes(
         string path)
     {
@@ -144,7 +138,7 @@ public sealed class WidgetForegroundContractTests
         string stackPopover = Read(
             "src/DeskBox/Controls/WidgetContents/FileSurfaceContent.StackPopover.cs");
         string quickCapture = Read(
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.Items.cs");
+            "src/DeskBox/Controls/WidgetContents/QuickCaptureSurfaceContent.xaml.cs");
         string todo = Read(
             "src/DeskBox/Controls/WidgetContents/TodoWidgetContent.EditingAndUndo.cs");
         string neutralBrush = Read("src/DeskBox/Helpers/NeutralInteractionBrush.cs");

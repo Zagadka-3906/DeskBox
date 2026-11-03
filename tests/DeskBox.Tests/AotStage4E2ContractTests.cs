@@ -1,4 +1,4 @@
-namespace DeskBox.Tests;
+﻿namespace DeskBox.Tests;
 
 public sealed class AotStage4E2ContractTests
 {
@@ -23,7 +23,8 @@ public sealed class AotStage4E2ContractTests
         Assert.Equal(1, CountOccurrences(xaml, "{x:Bind TitleFontSize, Mode=OneWay}"));
         Assert.Equal(1, CountOccurrences(xaml, "{x:Bind Title, Mode=OneWay}"));
         Assert.Equal(1, CountOccurrences(xaml, "{x:Bind EditorFontSize, Mode=OneWay}"));
-        Assert.Equal(1, CountOccurrences(xaml, "{x:Bind CancelText, Mode=OneWay}"));
+        // 2 = cancel button Content + its AutomationProperties.Name (a11y same-source).
+        Assert.Equal(2, CountOccurrences(xaml, "{x:Bind CancelText, Mode=OneWay}"));
         Assert.Equal(2, CountOccurrences(xaml, "{x:Bind CommandFontSize, Mode=OneWay}"));
         Assert.Equal(1, CountOccurrences(xaml, "{x:Bind SaveText, Mode=OneWay}"));
         Assert.DoesNotContain("ElementName=InlineEditorRoot", xaml, StringComparison.Ordinal);
@@ -64,13 +65,12 @@ public sealed class AotStage4E2ContractTests
     [Fact]
     public void InlineEditorConsumers_SaveAndResetThroughTheTextDependencyProperty()
     {
-        string quickCapture = ReadRepositoryFile(
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.Editing.cs");
+        // Todo is the sole WidgetInlineEditor consumer since the standalone
+        // QuickCaptureWidgetWindow (superseded by QuickCaptureSurfaceContent
+        // hosted in ContentWidgetWindow) was removed.
         string todo = ReadRepositoryFile(
             "src/DeskBox/Controls/WidgetContents/TodoWidgetContent.EditingAndUndo.cs");
 
-        Assert.Contains("string body = QuickCaptureInlineEditor.Text;", quickCapture, StringComparison.Ordinal);
-        Assert.Contains("QuickCaptureInlineEditor.Text = string.Empty;", quickCapture, StringComparison.Ordinal);
         Assert.Contains("UpdateItemTextAsync(item.Id, TodoInlineEditor.Text)", todo, StringComparison.Ordinal);
         Assert.Contains("TodoInlineEditor.Text = string.Empty;", todo, StringComparison.Ordinal);
     }
@@ -81,8 +81,7 @@ public sealed class AotStage4E2ContractTests
         string appXaml = ReadRepositoryFile("src/DeskBox/App.xaml");
         string contentWindow = ReadRepositoryFile("src/DeskBox/Views/ContentWidgetWindow.xaml");
 
-        Assert.Contains("Value=\"{Binding SegmentHeight}\"", appXaml, StringComparison.Ordinal);
-        Assert.Contains("Value=\"{Binding SegmentTextSize}\"", appXaml, StringComparison.Ordinal);
+        Assert.Equal(0, CountOccurrences(appXaml, "{Binding "));
         Assert.Contains("OverlayTitle=\"{Binding DisplayName}\"", contentWindow, StringComparison.Ordinal);
     }
 
@@ -105,7 +104,7 @@ public sealed class AotStage4E2ContractTests
     {
         string audit = ReadRepositoryFile("scripts/publish-aot-audit.ps1");
 
-        Assert.Contains("$stage4E2MaximumWmc1510Count = 866", audit, StringComparison.Ordinal);
+        Assert.Contains("$stage4E2MaximumWmc1510Count = 790", audit, StringComparison.Ordinal);
         Assert.Contains("Stage 4E-2 WMC1510 count regressed above its ceiling", audit, StringComparison.Ordinal);
     }
 

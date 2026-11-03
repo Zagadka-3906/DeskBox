@@ -7,7 +7,9 @@ namespace DeskBox.Services;
 
 public sealed partial class WidgetManager
 {
-    private readonly QuickLookPreviewService _quickLookPreviewService = new();
+    // The broker arbitrates QuickLook vs PowerToys Peek; QuickLook-era
+    // names stay for the session machine and its call sites.
+    private readonly SpacePreviewBroker _quickLookPreviewService = new();
     private readonly SemaphoreSlim _quickLookPreviewSendGate = new(1, 1);
     private FileSurfaceContent? _quickLookPreviewSurface;
     private string? _quickLookPreviewPath;
@@ -156,7 +158,7 @@ public sealed partial class WidgetManager
             if (selectedTarget)
             {
                 targetHost.Host.ActivateQuickLookNavigationTarget(
-                    targetHost.Surface);
+                    targetHost.Adapter);
             }
         }
         finally
@@ -190,6 +192,9 @@ public sealed partial class WidgetManager
             return;
         }
 
+        // Peek closes by re-sending the path the session last showed, so
+        // the path must be captured before the session state resets.
+        string? closePath = _quickLookPreviewPath;
         EndQuickLookPreviewSession();
         long closeGeneration = _quickLookPreviewGeneration;
         await _quickLookPreviewSendGate.WaitAsync();
@@ -201,7 +206,7 @@ public sealed partial class WidgetManager
                 return;
             }
 
-            await _quickLookPreviewService.TryCloseAsync();
+            await _quickLookPreviewService.TryCloseAsync(closePath);
         }
         finally
         {
@@ -247,13 +252,20 @@ public sealed partial class WidgetManager
     {
         var hosts = new List<QuickLookSurfaceHost>();
         hosts.AddRange(_fileWidgets.Values.Select(session =>
-            new QuickLookSurfaceHost(session.Host, session.Content)));
+            new QuickLookSurfaceHost(
+                session.Host,
+                session.Content,
+                session.Content.RequireSurface())));
         hosts.AddRange(_contentWidgets.Values
             .Distinct()
-            .Where(window => window.CurrentContent is FileSurfaceContent)
+            .Where(window => window.CurrentContent is FileWidgetContentAdapter
+                {
+                    Surface: not null
+                })
             .Select(window => new QuickLookSurfaceHost(
                 window,
-                (FileSurfaceContent)window.CurrentContent!)));
+                (FileWidgetContentAdapter)window.CurrentContent!,
+                ((FileWidgetContentAdapter)window.CurrentContent!).RequireSurface())));
 
         return hosts
             .Where(host => host.Host.Visible && host.Surface.IsLoaded)
@@ -280,5 +292,6 @@ public sealed partial class WidgetManager
 
     private sealed record QuickLookSurfaceHost(
         ContentWidgetWindow Host,
+        FileWidgetContentAdapter Adapter,
         FileSurfaceContent Surface);
 }

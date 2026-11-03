@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet("x64", "ARM64")]
     [string]$Platform = "x64",
@@ -996,14 +996,6 @@ $stage4E1MissingBehaviorPatterns = @(
 )
 $stage4E1DeferredBindingContracts = @(
     [PSCustomObject]@{
-        sourceFile = "src\DeskBox\App.xaml"
-        pattern = 'Value="{Binding SegmentHeight}"'
-    },
-    [PSCustomObject]@{
-        sourceFile = "src\DeskBox\App.xaml"
-        pattern = 'Value="{Binding SegmentTextSize}"'
-    },
-    [PSCustomObject]@{
         sourceFile = "src\DeskBox\Views\ContentWidgetWindow.xaml"
         pattern = 'OverlayTitle="{Binding DisplayName}"'
     }
@@ -1026,7 +1018,7 @@ $stage4E1SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage4E1MaximumWmc1510Count = 866
+$stage4E1MaximumWmc1510Count = 790
 $stage4E1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -1112,7 +1104,7 @@ $stage4E2RequiredCompiledBindings = @(
     [PSCustomObject]@{
         sourceFile = $stage4E2SourceFiles[2]
         pattern = "{x:Bind CancelText, Mode=OneWay}"
-        expectedCount = 1
+        expectedCount = 2
     },
     [PSCustomObject]@{
         sourceFile = $stage4E2SourceFiles[2]
@@ -1197,7 +1189,7 @@ $stage4E2SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage4E2MaximumWmc1510Count = 866
+$stage4E2MaximumWmc1510Count = 790
 $stage4E2ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -1326,11 +1318,6 @@ $stage4E3RequiredCompiledBindings = @(
         sourceFile = $stage4E3SourceFiles[3]
         pattern = "{x:Bind AppDisplayName, Mode=OneTime}"
         expectedCount = 1
-    },
-    [PSCustomObject]@{
-        sourceFile = $stage4E3SourceFiles[3]
-        pattern = "{x:Bind Title, Mode=OneTime}"
-        expectedCount = 2
     }
 )
 $stage4E3MissingCompiledBindings = @(
@@ -1358,11 +1345,6 @@ $stage4E3RequiredDataTypes = @(
         sourceFile = $stage4E3SourceFiles[3]
         pattern = 'x:DataType="models:SearchResultItem"'
         expectedCount = 1
-    },
-    [PSCustomObject]@{
-        sourceFile = $stage4E3SourceFiles[3]
-        pattern = 'x:DataType="models:SearchRecommendationItem"'
-        expectedCount = 2
     }
 )
 $stage4E3MissingDataTypes = @(
@@ -1453,7 +1435,7 @@ $stage4E3SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage4E3MaximumWmc1510Count = 866
+$stage4E3MaximumWmc1510Count = 790
 $stage4E3ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -1507,22 +1489,17 @@ $stage4E4LegacyBindingSourceMatches = @(
 $stage4E4RequiredCompiledBindings = @(
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[0]
-        pattern = "{x:Bind ViewModel.FileStackSettingsSummaryText, Mode=OneWay}"
+        pattern = "{x:Bind FileStack.SettingsSummaryText, Mode=OneWay}"
         expectedCount = 1
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[0]
-        pattern = "{x:Bind ViewModel.FileStacksEnabled, Mode=TwoWay}"
+        pattern = "{x:Bind FeatureWidgets.AvailableFolderOpenBehaviorOptionItems, Mode=OneWay}"
         expectedCount = 1
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[0]
-        pattern = "{x:Bind ViewModel.AvailableFileWidgetFolderOpenBehaviorOptionItems, Mode=OneWay}"
-        expectedCount = 1
-    },
-    [PSCustomObject]@{
-        sourceFile = $stage4E4SourceFiles[0]
-        pattern = "{x:Bind ViewModel.SelectedFileWidgetFolderOpenBehavior, Mode=TwoWay}"
+        pattern = "{x:Bind FeatureWidgets.FolderOpenBehavior, Mode=TwoWay}"
         expectedCount = 1
     }
 )
@@ -1539,7 +1516,15 @@ $stage4E4MissingCompiledBindings = @(
 $stage4E4RequiredViewModelBridgePatterns = @(
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[1]
-        pattern = "public static readonly DependencyProperty ViewModelProperty"
+        pattern = "public static readonly DependencyProperty FileStackProperty"
+    },
+    [PSCustomObject]@{
+        sourceFile = $stage4E4SourceFiles[1]
+        pattern = "public static readonly DependencyProperty FeatureWidgetsProperty"
+    },
+    [PSCustomObject]@{
+        sourceFile = $stage4E4SourceFiles[1]
+        pattern = "public static readonly DependencyProperty InteractionProperty"
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[1]
@@ -1547,11 +1532,19 @@ $stage4E4RequiredViewModelBridgePatterns = @(
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[1]
-        pattern = "nameof(ViewModel)"
+        pattern = "nameof(FileStack)"
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[1]
-        pattern = "typeof(SettingsViewModel)"
+        pattern = "typeof(FileStackSettingsViewModel)"
+    },
+    [PSCustomObject]@{
+        sourceFile = $stage4E4SourceFiles[1]
+        pattern = "typeof(FeatureWidgetsSettingsViewModel)"
+    },
+    [PSCustomObject]@{
+        sourceFile = $stage4E4SourceFiles[1]
+        pattern = "typeof(InteractionSettingsViewModel)"
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[1]
@@ -1559,15 +1552,15 @@ $stage4E4RequiredViewModelBridgePatterns = @(
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[1]
-        pattern = "public SettingsViewModel? ViewModel"
+        pattern = "public FileStackSettingsViewModel? FileStack"
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[1]
-        pattern = "get => (SettingsViewModel?)GetValue(ViewModelProperty);"
+        pattern = "get => (FileStackSettingsViewModel?)GetValue(FileStackProperty);"
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[1]
-        pattern = "set => SetValue(ViewModelProperty, value);"
+        pattern = "set => SetValue(FileStackProperty, value);"
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[2]
@@ -1575,11 +1568,11 @@ $stage4E4RequiredViewModelBridgePatterns = @(
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[7]
-        pattern = "fileSettings.ViewModel = ViewModel;"
+        pattern = "fileSettings.FileStack = _fileStackSettingsViewModel;"
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[2]
-        pattern = "AppearanceDetailSection.ViewModel = null;"
+        pattern = "AppearanceDetailSection.FileStack = null;"
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[2]
@@ -1604,14 +1597,17 @@ $stage4E4DeferredDataContextIndex = $stage4E4DeferredSectionsSource.IndexOf(
     "section.DataContext = ViewModel;",
     [StringComparison]::Ordinal)
 $stage4E4BridgeAssignmentIndex = $stage4E4DeferredSectionsSource.IndexOf(
-    "fileSettings.ViewModel = ViewModel;",
+    "fileSettings.FileStack = _fileStackSettingsViewModel;",
     [StringComparison]::Ordinal)
 $stage4E4BridgeClearIndex = $stage4E4SettingsWindowSource.IndexOf(
-    "AppearanceDetailSection.ViewModel = null;",
+    "AppearanceDetailSection.FileStack = null;",
     [StringComparison]::Ordinal)
-$stage4E4ViewModelDisposeIndex = $stage4E4SettingsWindowSource.IndexOf(
-    "ViewModel.Dispose();",
-    [StringComparison]::Ordinal)
+$stage4E4ViewModelDisposeMatch = [regex]::Match(
+    $stage4E4SettingsWindowSource,
+    '(?m)^[ \t]*ViewModel\.Dispose\(\);[ \t]*\r?$')
+$stage4E4ViewModelDisposeIndex = if ($stage4E4ViewModelDisposeMatch.Success) {
+    $stage4E4ViewModelDisposeMatch.Index
+} else { -1 }
 $stage4E4ViewModelBridgeOrderValid =
     $stage4E4RootDataContextIndex -ge 0 -and
     $stage4E4DeferredDataContextIndex -ge 0 -and
@@ -1627,30 +1623,41 @@ $stage4E4UnexpectedManualBridgePatterns = @(
         }
     }
 )
+# Batch 45 re-homed the file-stack and folder-open behavior contracts onto
+# their section editors; the source list still points the legacy warning
+# scope at the historical shell files, so these behavior patterns read the
+# editor files directly.
+$stage4E4EditorSources = @{}
+foreach ($editorFile in @(
+        "src\DeskBox\Features\FileStack\FileStackSettingsViewModel.cs",
+        "src\DeskBox\Features\FeatureWidgets\FeatureWidgetsSettingsViewModel.cs",
+        "src\DeskBox\Features\Interaction\InteractionSettingsViewModel.cs")) {
+    $stage4E4EditorSources[$editorFile] = Get-Content -LiteralPath (Join-Path $repoRoot $editorFile) -Raw
+}
 $stage4E4RequiredBehaviorPatterns = @(
     [PSCustomObject]@{
-        sourceFile = $stage4E4SourceFiles[3]
-        pattern = "OnPropertyChanged(nameof(FileStackSettingsSummaryText));"
+        sourceFile = "src\DeskBox\Features\FileStack\FileStackSettingsViewModel.cs"
+        pattern = "OnPropertyChanged(nameof(SettingsSummaryText));"
     },
     [PSCustomObject]@{
-        sourceFile = $stage4E4SourceFiles[3]
-        pattern = "OnPropertyChanged(nameof(FileStackAutoStacking));"
+        sourceFile = "src\DeskBox\Features\FileStack\FileStackSettingsViewModel.cs"
+        pattern = "_settings.SetFileStackAutoStacking(value);"
     },
     [PSCustomObject]@{
-        sourceFile = $stage4E4SourceFiles[3]
-        pattern = "SetProperty(ref _fileStacksEnabled, value)"
+        sourceFile = "src\DeskBox\Features\FeatureWidgets\FeatureWidgetsSettingsViewModel.cs"
+        pattern = "public string FolderOpenBehavior"
     },
     [PSCustomObject]@{
-        sourceFile = $stage4E4SourceFiles[4]
-        pattern = "public string SelectedFileWidgetFolderOpenBehavior"
+        sourceFile = "src\DeskBox\Features\FeatureWidgets\FeatureWidgetsSettingsViewModel.cs"
+        pattern = "_settings.SetFileWidgetFolderOpenBehavior(normalized);"
     },
     [PSCustomObject]@{
-        sourceFile = $stage4E4SourceFiles[4]
-        pattern = "_settingsService.Settings.FileWidgetFolderOpenBehavior = normalized;"
+        sourceFile = "src\DeskBox\Features\FeatureWidgets\FeatureWidgetsSettingsViewModel.cs"
+        pattern = "OnPropertyChanged(nameof(AvailableFolderOpenBehaviorOptionItems));"
     },
     [PSCustomObject]@{
-        sourceFile = $stage4E4SourceFiles[5]
-        pattern = "OnPropertyChanged(nameof(AvailableFileWidgetFolderOpenBehaviorOptions));"
+        sourceFile = "src\DeskBox\Features\Interaction\InteractionSettingsViewModel.cs"
+        pattern = "SetProperty(ref _fileItemContextMenuEnabled, value)"
     },
     [PSCustomObject]@{
         sourceFile = $stage4E4SourceFiles[6]
@@ -1671,7 +1678,13 @@ $stage4E4RequiredBehaviorPatterns = @(
 )
 $stage4E4MissingBehaviorPatterns = @(
     foreach ($contract in $stage4E4RequiredBehaviorPatterns) {
-        if ($stage4E4Sources[$contract.sourceFile].IndexOf(
+        $behaviorSource = if ($stage4E4Sources.Contains($contract.sourceFile)) {
+            $stage4E4Sources[$contract.sourceFile]
+        } else {
+            $stage4E4EditorSources[$contract.sourceFile]
+        }
+        if ([string]::IsNullOrEmpty($behaviorSource) -or
+            $behaviorSource.IndexOf(
                 $contract.pattern,
                 [StringComparison]::Ordinal) -lt 0) {
             "$($contract.sourceFile)::$($contract.pattern)"
@@ -1697,7 +1710,7 @@ $stage4E4SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage4E4MaximumWmc1510Count = 866
+$stage4E4MaximumWmc1510Count = 790
 $stage4E4ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -2035,7 +2048,7 @@ $stage4E5SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage4E5ExpectedWmc1510Count = 866
+$stage4E5ExpectedWmc1510Count = 790
 $stage4E5ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -2115,7 +2128,7 @@ $stage5ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5AExpectedWmc1510Count = 866
+$stage5AExpectedWmc1510Count = 790
 $stage5AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -2234,7 +2247,7 @@ $stage5B1SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B1ExpectedWmc1510Count = 866
+$stage5B1ExpectedWmc1510Count = 790
 $stage5B1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -2394,7 +2407,7 @@ $stage5B2ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B2AExpectedWmc1510Count = 866
+$stage5B2AExpectedWmc1510Count = 790
 $stage5B2AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -2557,7 +2570,7 @@ $stage5B2BSourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B2BExpectedWmc1510Count = 866
+$stage5B2BExpectedWmc1510Count = 790
 $stage5B2BActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -2715,7 +2728,7 @@ $stage5B3ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B3AExpectedWmc1510Count = 866
+$stage5B3AExpectedWmc1510Count = 790
 $stage5B3AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -2900,7 +2913,7 @@ $stage5B3BSourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B3BExpectedWmc1510Count = 866
+$stage5B3BExpectedWmc1510Count = 790
 $stage5B3BActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -3149,7 +3162,7 @@ $stage5B3CSourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B3CExpectedWmc1510Count = 866
+$stage5B3CExpectedWmc1510Count = 790
 $stage5B3CActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -3312,6 +3325,7 @@ $stage5B4ARequiredLocalePatterns = @(
     '"ar-SA"',
     '"bn-BD"',
     '"ru-RU"',
+    '"ko-KR"',
     'Window.Settings.Title',
     'Search.Action.OpenSettings'
 )
@@ -3419,7 +3433,7 @@ $stage5B4ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4AExpectedWmc1510Count = 866
+$stage5B4AExpectedWmc1510Count = 790
 $stage5B4AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -3437,14 +3451,29 @@ $stage5B4B1SourceFiles = @(
     "src/DeskBox/Views/SettingsSections/CapsuleModeSettingsSection.xaml",
     "src/DeskBox/Views/SettingsSections/CapsuleModeSettingsSection.xaml.cs",
     "src/DeskBox/Models/SettingsOption.cs",
-    "src/DeskBox/ViewModels/SettingsViewModel.CapsuleOptions.cs",
-    "src/DeskBox/ViewModels/SettingsViewModel.GroupNavigation.cs",
+    # Batch 44 moved the capsule-override and widget-group projection records
+    # off the settings shell into the Models namespace.
+    "src/DeskBox/Models/CapsuleOverrideSettingsItem.cs",
+    "src/DeskBox/Models/WidgetGroupSettingsItems.cs",
     "src/DeskBox/Models/WeatherData.cs",
     "src/DeskBox/Views/SettingsSections/FileWidgetSettingsSection.xaml",
     "src/DeskBox/ViewModels/SettingsViewModel.FileStackOptions.cs",
     "src/DeskBox/ViewModels/SettingsViewModel.FeatureOptions.cs",
     "src/DeskBox/ViewModels/SettingsViewModel.SelectionOptions.cs",
-    "src/DeskBox/ViewModels/SettingsViewModel.WeatherOptions.cs",
+    # Batch 48 moved the weather section's binding surface (incl. the city
+    # search suggestion projection) onto the section editor.
+    "src/DeskBox/Features/Weather/WeatherSettingsViewModel.cs",
+    # Batch 49 moved the backup family's binding surface (local/cloud
+    # backups and the compatibility-diagnostics texts) onto the backup
+    # editor; the shell keeps only the operation flows and diagnostics
+    # computation.
+    "src/DeskBox/Features/Backup/BackupSettingsViewModel.cs",
+    "src/DeskBox/Features/Backup/BackupSettingsViewModel.SettingsSurface.cs",
+    # Batch 50 moved the performance section's binding surface (and the
+    # General section's inline preset combo / attachment-storage combo)
+    # onto the performance / feature-widgets editors.
+    "src/DeskBox/Features/Performance/PerformanceSettingsViewModel.cs",
+    "src/DeskBox/Features/FeatureWidgets/FeatureWidgetsSettingsViewModel.cs",
     "src/DeskBox/Views/SettingsWindow.HotkeyAndAppearance.cs",
     # Deferred-section host owns the lazy typed-ViewModel bridges that used to
     # live eagerly in SettingsWindow.xaml.cs.
@@ -3464,7 +3493,7 @@ $stage5B4B1RequiredRunnerPatterns = @(
     'FileStackRuleCount',
     'BackupSnapshotCount',
     'DeepSettingsCompleted',
-    'result.DeepSettings.PageTransitions.Count == 24',
+    'result.DeepSettings.PageTransitions.Count == 25',
     'AotManagedUiSmokeJsonContext.Default.AotManagedUiSmokeResult'
 )
 $stage5B4B1MissingRunnerPatterns = @(
@@ -3530,7 +3559,7 @@ $stage5B4B1RequiredProjectionPatterns = @(
 $stage5B4B1ProjectionSource =
     $stage5B4B1Sources[$stage5B4B1SourceFiles[5]] +
     "`n" +
-    $stage5B4B1Sources[$stage5B4B1SourceFiles[22]]
+    $stage5B4B1Sources[$stage5B4B1SourceFiles[26]]
 $stage5B4B1MissingProjectionPatterns = @(
     foreach ($pattern in $stage5B4B1RequiredProjectionPatterns) {
         if ($stage5B4B1ProjectionSource.IndexOf(
@@ -3565,7 +3594,6 @@ $stage5B4B1RequiredBindableTypePatterns = @(
         patterns = @(
             '#if DESKBOX_NATIVE_AOT',
             '[WinRT.GeneratedBindableCustomProperty([',
-            'nameof(SelectedWidgetCapsuleBarPlacement)',
             'public partial class SettingsViewModel')
     },
     [ordered]@{
@@ -3605,7 +3633,7 @@ $stage5B4B1MissingBindableTypePatterns = @(
         }
     }
 )
-$stage5B4B1ExpectedBindableViewModelPropertyCount = 349
+$stage5B4B1ExpectedBindableViewModelPropertyCount = 33
 $stage5B4B1ActualBindableViewModelPropertyCount = [regex]::Matches(
     $stage5B4B1Sources[$stage5B4B1SourceFiles[9]],
     [regex]::Escape('nameof(')).Count
@@ -3624,7 +3652,7 @@ $stage5B4B1UnsafeBindableViewModelPatterns = @(
     }
 )
 $stage5B4B1RequiredFileStackXamlPatterns = @(
-    'ItemsSource="{x:Bind FileStackCustomRules, Mode=OneWay}"'
+    'ItemsSource="{x:Bind CustomRules, Mode=OneWay}"'
 )
 $stage5B4B1RequiredCommandXamlPatterns = @(
     'Command="{x:Bind ResetDisplayWidgetChromeOverridesCommand, Mode=OneWay}"',
@@ -3678,34 +3706,40 @@ $stage5B4B1RequiredFileWidgetProjectionPatterns = @(
     [ordered]@{
         file = $stage5B4B1SourceFiles[16]
         patterns = @(
-            'IsOn="{x:Bind ViewModel.FileStacksEnabled, Mode=TwoWay}"',
-            'ItemsSource="{x:Bind ViewModel.AvailableFileWidgetFolderOpenBehaviorOptionItems, Mode=OneWay}"')
+            'ItemsSource="{x:Bind FeatureWidgets.AvailableFolderOpenBehaviorOptionItems, Mode=OneWay}"')
     },
     [ordered]@{
-        file = $stage5B4B1SourceFiles[17]
+        file = 'src/DeskBox/Features/FileStack/FileStackSettingsViewModel.cs'
         patterns = @(
-            'public bool FileStacksEnabled',
-            'SetProperty(ref _fileStacksEnabled, value)',
-            '_settingsService.Settings.FileStacksEnabled = value;')
+            'public bool AutoStacking',
+            '_settings.SetFileStackAutoStacking(value);')
     },
     [ordered]@{
-        file = $stage5B4B1SourceFiles[18]
+        file = 'src/DeskBox/Features/FeatureWidgets/FeatureWidgetsSettingsViewModel.cs'
         patterns = @(
-            'public object[] AvailableFileWidgetFolderOpenBehaviorOptionItems',
-            'AvailableFileWidgetFolderOpenBehaviorOptions.Cast<object>().ToArray()')
+            'public object[] AvailableFolderOpenBehaviorOptionItems',
+            'AvailableFolderOpenBehaviorOptions.Cast<object>().ToArray()')
     },
     [ordered]@{
-        file = $stage5B4B1SourceFiles[19]
+        file = 'src/DeskBox/Features/FeatureWidgets/FeatureWidgetsSettingsViewModel.cs'
         patterns = @(
-            'OnPropertyChanged(nameof(AvailableFileWidgetFolderOpenBehaviorOptionItems))')
+            'OnPropertyChanged(nameof(AvailableFolderOpenBehaviorOptionItems))')
     }
 )
+$stage5B4B1FileWidgetProjectionSources = @{}
+foreach ($projectionFile in @(
+        $stage5B4B1SourceFiles[16],
+        "src/DeskBox/Features/FileStack/FileStackSettingsViewModel.cs",
+        "src/DeskBox/Features/FeatureWidgets/FeatureWidgetsSettingsViewModel.cs")) {
+    $stage5B4B1FileWidgetProjectionSources[$projectionFile] =
+        Get-Content -LiteralPath (Join-Path $repoRoot ($projectionFile -replace '/', '\')) -Raw
+}
 $stage5B4B1MissingFileWidgetProjectionPatterns = @(
     foreach ($entry in $stage5B4B1RequiredFileWidgetProjectionPatterns) {
         foreach ($pattern in $entry.patterns) {
-            if ($stage5B4B1Sources[$entry.file].IndexOf(
-                    $pattern,
-                    [StringComparison]::Ordinal) -lt 0) {
+            if ($stage5B4B1FileWidgetProjectionSources[$entry.file].IndexOf(
+                $pattern,
+                [StringComparison]::Ordinal) -lt 0) {
                 "$($entry.file)::$pattern"
             }
         }
@@ -3715,21 +3749,24 @@ $stage5B4B1RequiredWeatherProjectionPatterns = @(
     [ordered]@{
         file = $stage5B4B1SourceFiles[20]
         patterns = @(
-            'ObservableCollection<WeatherCitySearchResult> WeatherCitySuggestions',
-            'public object[] WeatherCitySuggestionItems',
-            'WeatherCitySuggestions.Cast<object>().ToArray()',
-            'RefreshWeatherCitySuggestionItems()',
-            'WeatherCitySuggestions.Add(')
+            '_citySuggestions.Cast<object>().ToArray()',
+            'public object[] CitySuggestionItems',
+            'SetCitySuggestions(',
+            'SelectCity(_citySuggestions[0])')
     },
     [ordered]@{
-        file = $stage5B4B1SourceFiles[21]
+        # Name-based lookup: batch 49 inserted the backup editor files into
+        # the source list after the weather editor and silently shifted this
+        # positional reference onto the backup editor (the pattern lives in
+        # the hotkey-and-appearance code-behind). Batch 50 pins it by path.
+        file = "src/DeskBox/Views/SettingsWindow.HotkeyAndAppearance.cs"
         patterns = @(
-            'WeatherCitySuggestions[0]')
+            '_weatherSettingsViewModel.TrySelectFirstCitySuggestion()')
     },
     [ordered]@{
         file = $stage5B4B1SourceFiles[8]
         patterns = @(
-            'ItemsSource="{Binding WeatherCitySuggestionItems}"')
+            'ItemsSource="{Binding CitySuggestionItems}"')
     }
 )
 $stage5B4B1MissingWeatherProjectionPatterns = @(
@@ -3761,9 +3798,6 @@ $stage5B4B1RoutePatterns = @(
     '"AppearanceDensitySettings"',
     '"AppearanceWindowSettings"',
     '"AppearanceAnimationSettings"',
-    '"CapsuleBehaviorSettings"',
-    '"CapsuleArrangementSettings"',
-    '"CapsuleAnimationSettings"',
     '"CapsuleOverridesSettings"',
     '"BackupRestoreSettings"',
     '"DataHealthSettings"',
@@ -3831,12 +3865,12 @@ $stage5B4B1SourceWarningMessages = @(
         Where-Object {
             $line = $_
             $warningCodeRegex.IsMatch($line) -and
-                $line -match "(?:App\.AotManagedUiSmoke|SettingsWindow\.(?:AotDeepSmoke|Navigation|Maintenance|HotkeyAndAppearance)|SettingsWindow\.xaml|FileStackCustomRuleEditor|SettingsViewModel\.(?:AotBindableProperties|CapsuleOptions|GroupNavigation|FileStackOptions|FeatureOptions|SelectionOptions|WeatherOptions)|(?:CapsuleMode|FileWidget)SettingsSection\.xaml|SettingsOption|WeatherData)\.cs\("
+                $line -match "(?:App\.AotManagedUiSmoke|SettingsWindow\.(?:AotDeepSmoke|Navigation|Maintenance|HotkeyAndAppearance)|SettingsWindow\.xaml|FileStackCustomRuleEditor|Features\.Weather\.WeatherSettingsViewModel|Features\.Backup\.BackupSettingsViewModel(?:\.\w+)?|Features\.Performance\.PerformanceSettingsViewModel(?:\.\w+)?|Features\.FeatureWidgets\.FeatureWidgetsSettingsViewModel(?:\.\w+)?|SettingsViewModel\.(?:AotBindableProperties|CapsuleOptions|GroupNavigation|FileStackOptions|FeatureOptions|SelectionOptions)|(?:CapsuleMode|FileWidget)SettingsSection\.xaml|SettingsOption|WeatherData)\.cs\("
         } |
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4B1ExpectedWmc1510Count = 866
+$stage5B4B1ExpectedWmc1510Count = 790
 $stage5B4B1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -3847,7 +3881,6 @@ $stage5B4B2ASourceFiles = @(
     "scripts/run-aot-managed-ui-smoke.ps1",
     "scripts/start-aot-preview.ps1",
     "src/DeskBox/ViewModels/SettingsViewModel.AppearanceOptions.cs",
-    "src/DeskBox/ViewModels/SettingsViewModel.AppearanceCallbacks.cs",
     "src/DeskBox/ViewModels/SettingsViewModel.PreferenceCallbacks.cs",
     "src/DeskBox/ViewModels/WidgetViewModel.Operations.cs",
     "src/DeskBox/Services/SettingsService.cs"
@@ -3863,11 +3896,13 @@ $stage5B4B2ARequiredRunnerPatterns = @(
     'AotManagedUiPersistenceVerifyRestorePhase',
     'AotManagedUiPersistencePostflightPhase',
     'CaptureAotManagedUiPersistenceAsync',
-    'settingsWindow.ViewModel',
+    # Batch 43 rerouted the AOT persistence chimney through the appearance
+    # editor (the shell facade properties are gone).
+    'settingsWindow.AppearanceSettings',
     'ShowFileExtensions',
     'FileNameLineCount',
     'TextSize',
-    'SelectedTrayIconStyle',
+    'appearanceSettings.TrayIconStyle',
     'FlushPendingSaveAsync(',
     'SettingsPersistenceFlushed',
     'ShutdownApplicationAsync()',
@@ -4015,7 +4050,7 @@ $stage5B4B2ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4B2AExpectedWmc1510Count = 866
+$stage5B4B2AExpectedWmc1510Count = 790
 $stage5B4B2AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -4113,7 +4148,8 @@ $stage5B4B2B1RequiredManagerPatterns = @(
     'aot-5b4b2b1-quick-capture',
     '_contentWidgets.TryGetValue',
     'window.ContentReadyTask',
-    'window.CurrentContent is QuickCaptureSurfaceContent',
+    'window.CurrentContent is QuickCaptureWidgetContentAdapter adapter',
+    'adapter.View is QuickCaptureSurfaceContent surface',
     'WindowHandle',
     'WindowContentRoot?.XamlRoot',
     'Visible'
@@ -4205,7 +4241,7 @@ $stage5B4B2B1SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4B2B1ExpectedWmc1510Count = 866
+$stage5B4B2B1ExpectedWmc1510Count = 790
 $stage5B4B2B1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -4251,6 +4287,14 @@ $stage5B4B2B2ARequiredRunnerPatterns = @(
     'AttachmentCount',
     'HasDueDate',
     'HasRecurrence',
+    'Where(item => !item.IsDeleted)',
+    'Single(entry => !entry.IsDeleted)',
+    'TombstoneIdCount',
+    'TombstoneIds',
+    'RequireAotTodoTombstonesPersisted',
+    'RequireAotTodoTombstoneSurvivedRestart',
+    'TodoDeletedItemTombstonePersisted',
+    'TodoDeleteTombstoneSurvivedRestart',
     'NormalShutdownRequested',
     'ShutdownApplicationAsync()',
     'AotManagedUiSmokeJsonContext.Default.AotManagedUiSmokeResult'
@@ -4355,6 +4399,9 @@ $stage5B4B2B2ARequiredSmokeScriptPatterns = @(
     '$verifyDelete.todoPersistence.before',
     '$verifyDelete.todoPersistence.after',
     '$postflight.todoPersistence.before',
+    '$deletedTodoItemId',
+    'tombstoneIdsAfterDelete',
+    'tombstoneIdsAfterRestart',
     'afterExplicitSave',
     'final-todo.json',
     'todoNaturalExit',
@@ -4429,7 +4476,7 @@ $stage5B4B2B2ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4B2B2AExpectedWmc1510Count = 866
+$stage5B4B2B2AExpectedWmc1510Count = 790
 $stage5B4B2B2AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -4474,6 +4521,11 @@ $stage5B4B2B2B1RequiredRunnerPatterns = @(
     'AfterStepDelete',
     'RequireAotManagedUiTodoStepPopulated',
     'RequireAotManagedUiTodoTaskWithoutSteps',
+    'Single(entry => !entry.IsDeleted)',
+    'RequireAotTodoTombstonesPersisted(evidence.After, restart.ItemId)',
+    'RequireAotTodoTombstoneSurvivedRestart',
+    'TodoStepsDeletedItemTombstonePersisted',
+    'TodoStepsDeleteTombstoneSurvivedRestart',
     'NormalShutdownRequested',
     'ShutdownApplicationAsync()',
     'AotManagedUiSmokeJsonContext.Default.AotManagedUiSmokeResult'
@@ -4588,6 +4640,9 @@ $stage5B4B2B2B1RequiredSmokeScriptPatterns = @(
     '$verifyDelete.todoStepsPersistence.afterStepMutation',
     '$verifyDelete.todoStepsPersistence.afterStepDelete',
     '$postflight.todoStepsPersistence.before',
+    '$deletedTodoStepsItemId',
+    'todoStepsTombstoneIdsAfterDelete',
+    'todoStepsTombstoneIdsAfterRestart',
     'todoStepsNaturalExit',
     'todoStepsPreviewProcessesAfter',
     'Sort-Object -Unique',
@@ -4653,7 +4708,7 @@ $stage5B4B2B2B1SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4B2B2B1ExpectedWmc1510Count = 866
+$stage5B4B2B2B1ExpectedWmc1510Count = 790
 $stage5B4B2B2B1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -4704,6 +4759,11 @@ $stage5B4B2B2B2RequiredRunnerPatterns = @(
     'AfterAttachmentDelete',
     'RequireAotManagedUiTodoAttachmentPopulated',
     'RequireAotManagedUiTodoTaskWithoutAttachments',
+    'Single(entry => !entry.IsDeleted)',
+    'RequireAotTodoTombstonesPersisted(evidence.After, deletion.ItemId)',
+    'RequireAotTodoTombstoneSurvivedRestart',
+    'TodoAttachmentsDeletedItemTombstonePersisted',
+    'TodoAttachmentsDeleteTombstoneSurvivedRestart',
     'NormalShutdownRequested',
     'ShutdownApplicationAsync()',
     'AotManagedUiSmokeJsonContext.Default.AotManagedUiSmokeResult'
@@ -4787,7 +4847,7 @@ $stage5B4B2B2B2RequiredProductPatterns = @(
     'AttachmentStorageService.ImportPathAsync',
     'public async Task<bool> DeleteAttachmentAsync',
     'await SaveAsync();',
-    'File.Delete(attachment.FilePath)',
+    'AttachmentStorageService.TryDeleteManagedCopyAsync(',
     'File.Copy(normalizedSourcePath, destinationPath',
     'x:DataType="viewModels:TodoAttachmentViewModel"',
     '{x:Bind DisplayName, Mode=OneWay}',
@@ -4842,6 +4902,9 @@ $stage5B4B2B2B2RequiredSmokeScriptPatterns = @(
     '$verifyDelete.todoAttachmentsPersistence.before',
     '$verifyDelete.todoAttachmentsPersistence.afterAttachmentDelete',
     '$postflight.todoAttachmentsPersistence.before',
+    '$deletedTodoAttachmentsItemId',
+    'todoAttachmentsTombstoneIdsAfterDelete',
+    'todoAttachmentsTombstoneIdsAfterRestart',
     'todo-managed-attachment.txt',
     'Get-FileSha256',
     'fixtureSha256',
@@ -4911,7 +4974,7 @@ $stage5B4B2B2B2SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4B2B2B2ExpectedWmc1510Count = 866
+$stage5B4B2B2B2ExpectedWmc1510Count = 790
 $stage5B4B2B2B2ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -5156,7 +5219,7 @@ $stage5B4B2C1SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4B2C1ExpectedWmc1510Count = 866
+$stage5B4B2C1ExpectedWmc1510Count = 790
 $stage5B4B2C1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -5164,7 +5227,11 @@ $stage5B4B2C2ASourceFiles = @(
     "src/DeskBox/App.AotManagedUiSmoke.cs",
     "src/DeskBox/App.AotWeatherSettingsPersistenceSmoke.cs",
     "src/DeskBox/Services/WeatherSettingsPolicy.cs",
-    "src/DeskBox/ViewModels/SettingsViewModel.WeatherOptions.cs",
+    # Batch 38 moved the settings page's weather policy writes from the
+    # SettingsViewModel.WeatherOptions shell facade into the feature-section
+    # coordinator; the "product writer reuses the local policy" pin follows
+    # the owner.
+    "src/DeskBox/Services/FeatureWidgetsSettingsCoordinator.cs",
     "src/DeskBox/Services/WeatherWidgetViewModeSettings.cs",
     "src/DeskBox/Services/WidgetManager.AotWeatherSettingsPersistenceSmoke.cs",
     "src/DeskBox/ViewModels/WeatherWidgetViewModel.RefreshAndLayout.cs",
@@ -5341,12 +5408,12 @@ $stage5B4B2C2ASourceWarningMessages = @(
             $line = $_
             $warningCodeRegex.IsMatch($line) -and
                 $line -notmatch "warning WMC1510:" -and
-                $line -match "(?:App\.Aot(?:ManagedUi|WeatherSettingsPersistence)Smoke|WeatherSettingsPolicy|SettingsViewModel\.WeatherOptions|WeatherWidgetViewModeSettings|WidgetManager\.AotWeatherSettingsPersistenceSmoke|WeatherWidgetViewModel\.RefreshAndLayout)\.cs\("
+                $line -match "(?:App\.Aot(?:ManagedUi|WeatherSettingsPersistence)Smoke|WeatherSettingsPolicy|FeatureWidgetsSettingsCoordinator|SettingsViewModel\.WeatherOptions|WeatherWidgetViewModeSettings|WidgetManager\.AotWeatherSettingsPersistenceSmoke|WeatherWidgetViewModel\.RefreshAndLayout)\.cs\("
         } |
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4B2C2AExpectedWmc1510Count = 866
+$stage5B4B2C2AExpectedWmc1510Count = 790
 $stage5B4B2C2AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -5598,7 +5665,7 @@ $stage5B4B2C2BSourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4B2C2BExpectedWmc1510Count = 866
+$stage5B4B2C2BExpectedWmc1510Count = 790
 $stage5B4B2C2BActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -5853,7 +5920,7 @@ $stage5B4C1ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C1AExpectedWmc1510Count = 866
+$stage5B4C1AExpectedWmc1510Count = 790
 $stage5B4C1AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -5945,7 +6012,7 @@ $stage5B4C1B1RequiredProductPatterns = @(
     'CreateItemFlyout',
     'CreateMultiSelectionFlyout',
     'Widget.MoveToRecycleBin',
-    'await actions.DeleteItemsAsync(actions.GetSelectedItems())',
+    'items => DeleteItemsAsync(items),',
     'DeleteItemsAsync,',
     'bool permanently = false',
     '_fileService.DeleteEntriesWithShellAsync(',
@@ -5967,8 +6034,7 @@ $stage5B4C1B1MenuSource =
 $stage5B4C1B1RequiredMenuPatterns = @(
     'CreateItemFlyout(selectedItems[0])',
     'CreateMultiSelectionFlyout()',
-    'MenuFlyoutItemAutomationPeer',
-    'PatternInterface.Invoke',
+    'AotContextMenuProbe.InvokeProvider(',
     'IInvokeProvider',
     'invokeProvider.Invoke()',
     'FeedbackRequested += OnFeedbackRequested',
@@ -6134,7 +6200,7 @@ $stage5B4C1B1SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C1B1ExpectedWmc1510Count = 866
+$stage5B4C1B1ExpectedWmc1510Count = 790
 $stage5B4C1B1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -6199,14 +6265,17 @@ $stage5B4C1B2ARequiredFixturePatterns = @(
     "character is >= '0' and <= '9'",
     ">= 'a' and <= 'f'",
     'TryGetOwnedDesktopPath',
-    'GetRecoveryProbeDelay',
-    'TimeSpan.FromMilliseconds(150)',
-    'executeRealShellMove()',
+    'TryCaptureModernTransfer',
+    'ThrowSimulatedModernOutcome',
+    'RecordModernRealCompletion',
+    'proceedWithRealEngine = true',
+    'AbandonedButCompletedOutcome',
+    'StaOperationAbandonedException(',
+    'FileService.FileTransferCanceledException(',
     'case PartialMode',
     'case CancelMode',
     'case LateMode',
     'SimulatedOperationsAborted = true',
-    'Thread.Sleep(800)',
     'unsupported owned selection shape'
 )
 $stage5B4C1B2AMissingFixturePatterns = @(
@@ -6233,14 +6302,9 @@ $stage5B4C1B2ARequiredProductPatterns = @(
     'GetDefaultDesktopPath',
     'AotShellMoveFixture.TryGetOwnedDesktopPath',
     'ExecuteTransferPlanAsync(',
-    'MoveEntriesWithShellProgress(',
-    'WindowHandle = ownerWindowHandle',
-    'SHFileOperation(ref fileOperation)',
-    'AotShellMoveFixture.TryExecute',
-    'AotShellMoveFixture.ReturnedOutcome',
-    'AotShellMoveFixture.RecoveredPendingOutcome',
-    'AotShellMoveFixture.ExtendedWaitOutcome',
-    'ObserveLateShellMoveCompletionAsync'
+    'ExecuteModernShellTransferPlanAsync(',
+    'catch (FileService.FileTransferCanceledException',
+    'SHFileOperation(ref operation)'
 )
 $stage5B4C1B2AMissingProductPatterns = @(
     foreach ($pattern in $stage5B4C1B2ARequiredProductPatterns) {
@@ -6258,8 +6322,7 @@ $stage5B4C1B2ARequiredMenuPatterns = @(
     'CreateMultiSelectionFlyout()',
     'Widget.MoveBackToDesktop',
     '_hostWindowHandle.ToInt64()',
-    'MenuFlyoutItemAutomationPeer',
-    'PatternInterface.Invoke',
+    'AotContextMenuProbe.InvokeProvider(',
     'IInvokeProvider',
     'invokeProvider.Invoke()',
     'FeedbackRequested += OnFeedbackRequested',
@@ -6281,9 +6344,9 @@ $stage5B4C1B2ARequiredScenarioPatterns = @(
     'InvokeAotShellMoveBackToDesktopAsync',
     'WaitForAotLocalFileSurfaceAsync',
     'ShellMoveMenuMatrixCompleted',
-    'LateTaskPendingWhenProductReturned',
-    'RecoveredPendingOutcome',
-    '[1, 0, 1, 1]',
+    'AbandonedButCompleted',
+    'AbandonedButCompletedOutcome',
+    '[1, 1, 1]',
     'case "VerifyRestore"',
     'case "Postflight"',
     'case "Compensate"',
@@ -6332,7 +6395,7 @@ $stage5B4C1B2ARequiredSmokeScriptPatterns = @(
     'recoveryRootCleaned',
     'final-fixture',
     'disk-states.json',
-    'Pending shell move call eventually returned',
+    '[FileTransfer] Windows shell transfer abandoned by the watchdog',
     'Stop-ExactPreviewProcess'
 )
 $stage5B4C1B2AMissingSmokeScriptPatterns = @(
@@ -6384,7 +6447,7 @@ $stage5B4C1B2ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C1B2AExpectedWmc1510Count = 866
+$stage5B4C1B2AExpectedWmc1510Count = 790
 $stage5B4C1B2AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -6497,8 +6560,7 @@ $stage5B4C1B2BRequiredMenuPatterns = @(
     'CreateItemFlyout(target)',
     'Common.Properties',
     '_hostWindowHandle == IntPtr.Zero',
-    'MenuFlyoutItemAutomationPeer',
-    'PatternInterface.Invoke',
+    'AotContextMenuProbe.InvokeProvider(',
     'IInvokeProvider',
     'CaptureVisibleTopLevelWindowHandles',
     'ObserveAndCloseOwnedDialogAsync',
@@ -6552,7 +6614,7 @@ $stage5B4C1B2BRequiredSmokeScriptPatterns = @(
     'FilePropertiesReadOnly',
     '[Guid]::NewGuid().ToString("N")',
     'file-properties-preview-$runId',
-    'profile 49 / schema 46',
+    'profile 59 / schema 55',
     'Refusing to replace an existing file Properties preview root',
     'Refusing to replace an existing file Properties recovery root',
     'properties-$runId.txt',
@@ -6624,7 +6686,7 @@ $stage5B4C1B2BSourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C1B2BExpectedWmc1510Count = 866
+$stage5B4C1B2BExpectedWmc1510Count = 790
 $stage5B4C1B2BActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -6677,7 +6739,7 @@ $stage5B4C1C1RequiredProductPatterns = @(
     'new FileOpenPicker(ownerWindowId)',
     'GetWindowIdFromWindow(',
     'SuggestedStartLocation = PickerLocationId.Desktop',
-    'picker.SuggestedFolder = normalizedFolder',
+    'suggestedFolder = normalizedFolder',
     'await picker.PickMultipleFilesAsync()',
     'ValidateOwnerWindowHandle(ownerHwnd)',
     'FileOpenPickerService.PickFilesAsync(',
@@ -6780,7 +6842,7 @@ $stage5B4C1C1RequiredSmokeScriptPatterns = @(
     'run-aot-picker-clipboard-smoke.ps1',
     'PickerClipboardStorageItemsPersistenceRestart',
     '[Guid]::NewGuid().ToString("N")',
-    'profile 50 / schema 47',
+    'profile 59 / schema 55',
     'UIAutomationClient',
     'CancelPending',
     'SelectionPending',
@@ -6799,7 +6861,7 @@ $stage5B4C1C1RequiredSmokeScriptPatterns = @(
     '"Postflight"',
     '$dataDirectory = Join-Path $DataRoot "data"',
     '$settingsPath = Join-Path $dataDirectory "settings.json"',
-    'schemaVersion = 5',
+    'schemaVersion = 9',
     'hasResolvedInitialFileWidgetSetup = $true',
     'featureWidgetEnabledStates',
     'productionDataFingerprintBefore',
@@ -6858,7 +6920,7 @@ $stage5B4C1C1SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C1C1ExpectedWmc1510Count = 866
+$stage5B4C1C1ExpectedWmc1510Count = 790
 $stage5B4C1C1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -7012,10 +7074,19 @@ $stage5B4C1C2ARequiredScenarioPatterns = @(
     'NativeDropLeaveClearedFolderHighlight',
     'NativeDropCopyMoveSemanticsVerified',
     'OleCallbackReleasedBeforeProgress',
-    'ProgressCardVisibleAboveDragVisual',
-    'BackgroundIsAcrylicBrush',
-    'CanvasZIndex >= 1000',
-    'TranslationZ >= 64',
+    'ProgressDeferredToShellTransfer',
+    'duringImport.IsImportBusy',
+    '!duringImport.CardVisible',
+    'WaitForAotImportBusyPastCardDelayAsync',
+    'AotImportCardDelayProofFloorMilliseconds',
+    'duringImport.BusyElapsedMilliseconds',
+    'WaitForAotImportCardVisibleSnapshotAsync',
+    'NativeDropManagedImportShowedAcrylicCard',
+    'NativeDropManagedImportSettled',
+    'NativeDropManagedCardProbeCleanedUp',
+    'cardShown.BackgroundIsAcrylicBrush',
+    'cardShown.CanvasZIndex == 1000',
+    'containsTemporaryFiles: true',
     'NativeDropRestartMutationVerified',
     'NativeDropPostflightVerified',
     'SHA256.HashData(stream)'
@@ -7057,7 +7128,7 @@ $stage5B4C1C2ARequiredSmokeScriptPatterns = @(
     'run-aot-native-drop-smoke.ps1',
     'NativeDropPersistenceRestart',
     '[Guid]::NewGuid().ToString("N")',
-    'profile 56 / schema 53',
+    'profile 59 / schema 55',
     '$largeFileLength = 384MB',
     'ProgrammaticGeneratedCcwHDrop',
     'physicalExplorerMouseVerified = $false',
@@ -7066,9 +7137,10 @@ $stage5B4C1C2ARequiredSmokeScriptPatterns = @(
     '"VerifyRestore"',
     '"Postflight"',
     'copyImport.duringImport.cardVisible',
-    'backgroundIsAcrylicBrush',
-    'canvasZIndex',
-    'translationZ',
+    'copyImport.duringImport.isImportBusy',
+    'managedCardImport.cardShown.cardVisible',
+    'managedCardImport.cardShown.backgroundIsAcrylicBrush',
+    'managedCardImport.destinationRemovedAfterProbe',
     'nativePointerClear.highlightActiveAfter',
     'nativeLeaveClear.highlightActiveAfter',
     'productionDataFingerprintBefore',
@@ -7128,7 +7200,7 @@ $stage5B4C1C2ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C1C2AExpectedWmc1510Count = 866
+$stage5B4C1C2AExpectedWmc1510Count = 790
 $stage5B4C1C2AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -7232,7 +7304,7 @@ $stage5B4C2ARunnerSource =
     $stage5B4C2ASources[$stage5B4C2ASourceFiles[7]]
 $stage5B4C2ARequiredSmokeScriptPatterns = @(
     'StartAotHotkeySmokeIfRequested();',
-    'profile 56 / schema 53',
+    'profile 59 / schema 55',
     'Invoke-HotkeyPhase',
     '-Phase "Primary"',
     '-Phase "Release"',
@@ -7299,7 +7371,7 @@ $stage5B4C2ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C2AExpectedWmc1510Count = 866
+$stage5B4C2AExpectedWmc1510Count = 790
 $stage5B4C2AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -7372,7 +7444,9 @@ $stage5B4C3AProductSource =
 $stage5B4C3ARequiredProductPatterns = @(
     'Func<string, TodoWidgetStore> storeFactory',
     'Func<DateTimeOffset> clock',
-    'public async Task<int> CheckNowAsync(DateTimeOffset now)',
+    'public Task<int> CheckNowAsync(DateTimeOffset now)',
+    'return _activeCheck = CheckCoreAsync(now);',
+    'private async Task<int> CheckCoreAsync(DateTimeOffset now)',
     'public async Task<bool> SnoozeAsync(',
     'item.SnoozedUntil = snoozedUntil',
     'item.ReminderDismissedForDueDate = item.DueDate',
@@ -7403,7 +7477,7 @@ $stage5B4C3ARequiredSmokeScriptPatterns = @(
     'StartAotTodoRecurrenceReminderSmokeIfRequested();',
     'TodoRecurrenceReminderPersistenceRestart',
     'run-aot-todo-recurrence-reminder-smoke.ps1',
-    'profile 56 / schema 53',
+    'profile 59 / schema 55',
     '[Guid]::NewGuid().ToString("N")',
     'Invoke-TodoRecurrenceReminderPhase',
     '"SeedAndSnooze"',
@@ -7471,7 +7545,7 @@ $stage5B4C3ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C3AExpectedWmc1510Count = 866
+$stage5B4C3AExpectedWmc1510Count = 790
 $stage5B4C3AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -7574,7 +7648,7 @@ $stage5B4C3B1RequiredSmokeScriptPatterns = @(
     'StartAotTodoNotificationLifecycleSmokeIfRequested();',
     'TodoNotificationDisplayCleanup',
     'run-aot-todo-notification-smoke.ps1',
-    'profile 56 / schema 53',
+    'profile 59 / schema 55',
     '[Guid]::NewGuid().ToString("N")',
     'Invoke-TodoNotificationPhase',
     '"ShowAndInspect"',
@@ -7651,7 +7725,7 @@ $stage5B4C3B1SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C3B1ExpectedWmc1510Count = 866
+$stage5B4C3B1ExpectedWmc1510Count = 790
 $stage5B4C3B1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -7762,7 +7836,7 @@ $stage5B4C3B2ARequiredSmokeScriptPatterns = @(
     'StartAotTodoNotificationActivationSmokeIfRequested();',
     'TodoNotificationActionRouting',
     'run-aot-todo-notification-activation-smoke.ps1',
-    'profile 56 / schema 53',
+    'profile 59 / schema 55',
     '[Guid]::NewGuid().ToString("N")',
     'Invoke-TodoNotificationActivationPhase',
     '"RouteAndPersist"',
@@ -7835,7 +7909,7 @@ $stage5B4C3B2ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C3B2AExpectedWmc1510Count = 866
+$stage5B4C3B2AExpectedWmc1510Count = 790
 $stage5B4C3B2AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -8027,7 +8101,7 @@ $stage5B4C3B2B1SourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C3B2B1ExpectedWmc1510Count = 866
+$stage5B4C3B2B1ExpectedWmc1510Count = 790
 $stage5B4C3B2B1ActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -8188,7 +8262,7 @@ $stage5B4C3B2B2ASourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C3B2B2AExpectedWmc1510Count = 866
+$stage5B4C3B2B2AExpectedWmc1510Count = 790
 $stage5B4C3B2B2AActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -8369,7 +8443,7 @@ $stage5B4C3B2B2BSourceWarningMessages = @(
         ForEach-Object { $_.Trim() } |
         Sort-Object -Unique
 )
-$stage5B4C3B2B2BExpectedWmc1510Count = 866
+$stage5B4C3B2B2BExpectedWmc1510Count = 790
 $stage5B4C3B2B2BActualWmc1510Count = @(
     $warningMatches | Where-Object { $_ -ieq "WMC1510" }
 ).Count
@@ -9237,8 +9311,13 @@ $summaryJson = $summary | ConvertTo-Json -Depth 6
     $summaryJson + [Environment]::NewLine,
     [System.Text.UTF8Encoding]::new($false))
 
+# Analysis-gate failures are collected instead of fail-fast so a single regression
+# (for example a CsWinRT1028 red) cannot mask later findings; build, publish, and
+# structural failures above still abort immediately because later analysis cannot run.
+$auditFailures = [System.Collections.Generic.List[string]]::new()
+
 if (-not $sourceStableDuringAudit) {
-    throw "The repository changed while the AOT audit was running. The output is not a trusted source snapshot; see '$summaryPath'."
+    $auditFailures.Add("The repository changed while the AOT audit was running. The output is not a trusted source snapshot; see '$summaryPath'.")
 }
 
 if ($warningCodes.Count -gt 0) {
@@ -9251,523 +9330,523 @@ if ($alwaysThrowMessages.Count -gt 0) {
 
 if ($targetedWarningCounts.MVVMTK0045 -ne 0 -or
     $targetedWarningCounts.CsWinRT1028 -ne 0) {
-    throw "AOT compatibility regression detected in migrated MVVM or CsWinRT ABI declarations. See '$summaryPath'."
+    $auditFailures.Add("AOT compatibility regression detected in migrated MVVM or CsWinRT ABI declarations. See '$summaryPath'.")
 }
 
 if ($stage4D1AWarningMessages.Count -gt 0) {
-    throw "Stage 4D-1A target files still produce AOT analysis warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-1A target files still produce AOT analysis warnings. See '$summaryPath'.")
 }
 
 if ($stage4D1BWarningMessages.Count -gt 0) {
-    throw "Stage 4D-1B target files still produce AOT analysis warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-1B target files still produce AOT analysis warnings. See '$summaryPath'.")
 }
 
 if ($stage4D2UnexpectedExistingSourceFiles.Count -gt 0) {
-    throw "Stage 4D-2 removed source files are present: $($stage4D2UnexpectedExistingSourceFiles -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-2 removed source files are present: $($stage4D2UnexpectedExistingSourceFiles -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4D2FileOperationWarningMessages.Count -gt 0) {
-    throw "Stage 4D-2 dead IFileOperation warnings remain. See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-2 dead IFileOperation warnings remain. See '$summaryPath'.")
 }
 
 if ($stage4D3ALegacyRcwSourceMatches.Count -gt 0) {
-    throw "Stage 4D-3A legacy data-object RCW patterns remain: $($stage4D3ALegacyRcwSourceMatches -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-3A legacy data-object RCW patterns remain: $($stage4D3ALegacyRcwSourceMatches -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4D3ADataReaderWarningMessages.Count -gt 0) {
-    throw "Stage 4D-3A data reader produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-3A data reader produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4D3BLegacyRegistrationSourceMatches.Count -gt 0) {
-    throw "Stage 4D-3B legacy drop-target registration patterns remain: $($stage4D3BLegacyRegistrationSourceMatches -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-3B legacy drop-target registration patterns remain: $($stage4D3BLegacyRegistrationSourceMatches -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4D3BMissingGeneratedComPatterns.Count -gt 0) {
-    throw "Stage 4D-3B generated COM registration patterns are missing: $($stage4D3BMissingGeneratedComPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-3B generated COM registration patterns are missing: $($stage4D3BMissingGeneratedComPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4D3BWarningMessages.Count -gt 0) {
-    throw "Stage 4D-3B drop-target boundary produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-3B drop-target boundary produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4D3BIl2050WarningMessages.Count -gt 0) {
-    throw "Stage 4D-3B did not eliminate every IL2050 warning. See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-3B did not eliminate every IL2050 warning. See '$summaryPath'.")
 }
 
 if ($stage4D4AWarningMessages.Count -gt 0) {
-    throw "Stage 4D-4A Explorer-shell boundary produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-4A Explorer-shell boundary produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4D4BWarningMessages.Count -gt 0) {
-    throw "Stage 4D-4B Quick Access boundary produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-4B Quick Access boundary produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4D5LegacyReflectionSourceMatches.Count -gt 0) {
-    throw "Stage 4D-5 tray reflection patterns remain: $($stage4D5LegacyReflectionSourceMatches -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-5 tray reflection patterns remain: $($stage4D5LegacyReflectionSourceMatches -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4D5MissingPublicPatterns.Count -gt 0) {
-    throw "Stage 4D-5 public tray contracts are missing: $($stage4D5MissingPublicPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-5 public tray contracts are missing: $($stage4D5MissingPublicPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4D5WarningMessages.Count -gt 0) {
-    throw "Stage 4D-5 tray sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4D-5 tray sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4E0LegacyOneWaySourceMatches.Count -gt 0) {
-    throw "Stage 4E-0 legacy OneWay search-history bindings remain: $($stage4E0LegacyOneWaySourceMatches -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-0 legacy OneWay search-history bindings remain: $($stage4E0LegacyOneWaySourceMatches -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E0MissingOneTimeBindings.Count -gt 0) {
-    throw "Stage 4E-0 OneTime search-history binding counts changed: $($stage4E0MissingOneTimeBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-0 OneTime search-history binding counts changed: $($stage4E0MissingOneTimeBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E0MissingBehaviorPatterns.Count -gt 0) {
-    throw "Stage 4E-0 immutable search-history behavior contracts are missing: $($stage4E0MissingBehaviorPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-0 immutable search-history behavior contracts are missing: $($stage4E0MissingBehaviorPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E0Wmc1506WarningMessages.Count -gt 0) {
-    throw "Stage 4E-0 search history bindings produced WMC1506 warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-0 search history bindings produced WMC1506 warnings. See '$summaryPath'.")
 }
 
 if ($stage4E0SourceWarningMessages.Count -gt 0) {
-    throw "Stage 4E-0 search widget sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-0 search widget sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4E1LegacyBindingSourceMatches.Count -gt 0) {
-    throw "Stage 4E-1 legacy leaf bindings remain: $($stage4E1LegacyBindingSourceMatches -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-1 legacy leaf bindings remain: $($stage4E1LegacyBindingSourceMatches -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E1MissingCompiledBindings.Count -gt 0) {
-    throw "Stage 4E-1 compiled binding counts changed: $($stage4E1MissingCompiledBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-1 compiled binding counts changed: $($stage4E1MissingCompiledBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E1MissingBehaviorPatterns.Count -gt 0) {
-    throw "Stage 4E-1 dependency-property or refresh contracts are missing: $($stage4E1MissingBehaviorPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-1 dependency-property or refresh contracts are missing: $($stage4E1MissingBehaviorPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E1MissingDeferredBindings.Count -gt 0) {
-    throw "Stage 4E-1 deferred runtime/style bindings changed scope: $($stage4E1MissingDeferredBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-1 deferred runtime/style bindings changed scope: $($stage4E1MissingDeferredBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 4E-1 leaf XAML sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-1 leaf XAML sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4E1ActualWmc1510Count -gt $stage4E1MaximumWmc1510Count) {
-    throw "Stage 4E-1 WMC1510 count regressed above its ceiling: maximum=$stage4E1MaximumWmc1510Count actual=$stage4E1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-1 WMC1510 count regressed above its ceiling: maximum=$stage4E1MaximumWmc1510Count actual=$stage4E1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage4E2LegacyBindingSourceMatches.Count -gt 0) {
-    throw "Stage 4E-2 legacy leaf bindings remain: $($stage4E2LegacyBindingSourceMatches -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-2 legacy leaf bindings remain: $($stage4E2LegacyBindingSourceMatches -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E2MissingCompiledBindings.Count -gt 0) {
-    throw "Stage 4E-2 compiled binding counts changed: $($stage4E2MissingCompiledBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-2 compiled binding counts changed: $($stage4E2MissingCompiledBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E2MissingBehaviorPatterns.Count -gt 0) {
-    throw "Stage 4E-2 dependency-property or interaction contracts are missing: $($stage4E2MissingBehaviorPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-2 dependency-property or interaction contracts are missing: $($stage4E2MissingBehaviorPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E2MissingDeferredBindings.Count -gt 0) {
-    throw "Stage 4E-2 deferred runtime/style bindings changed scope: $($stage4E2MissingDeferredBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-2 deferred runtime/style bindings changed scope: $($stage4E2MissingDeferredBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E2SourceWarningMessages.Count -gt 0) {
-    throw "Stage 4E-2 leaf XAML sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-2 leaf XAML sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4E2ActualWmc1510Count -gt $stage4E2MaximumWmc1510Count) {
-    throw "Stage 4E-2 WMC1510 count regressed above its ceiling: maximum=$stage4E2MaximumWmc1510Count actual=$stage4E2ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-2 WMC1510 count regressed above its ceiling: maximum=$stage4E2MaximumWmc1510Count actual=$stage4E2ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage4E3LegacyBindingSourceMatches.Count -gt 0) {
-    throw "Stage 4E-3 legacy DataTemplate bindings remain: $($stage4E3LegacyBindingSourceMatches -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-3 legacy DataTemplate bindings remain: $($stage4E3LegacyBindingSourceMatches -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E3MissingCompiledBindings.Count -gt 0) {
-    throw "Stage 4E-3 compiled DataTemplate binding counts changed: $($stage4E3MissingCompiledBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-3 compiled DataTemplate binding counts changed: $($stage4E3MissingCompiledBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E3MissingDataTypes.Count -gt 0) {
-    throw "Stage 4E-3 typed DataTemplate declarations changed: $($stage4E3MissingDataTypes -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-3 typed DataTemplate declarations changed: $($stage4E3MissingDataTypes -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E3MissingBehaviorPatterns.Count -gt 0) {
-    throw "Stage 4E-3 notification, lazy-refresh, or interaction contracts are missing: $($stage4E3MissingBehaviorPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-3 notification, lazy-refresh, or interaction contracts are missing: $($stage4E3MissingBehaviorPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E3MissingDeferredBindings.Count -gt 0) {
-    throw "Stage 4E-3 deferred runtime DataContext bindings changed scope: $($stage4E3MissingDeferredBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-3 deferred runtime DataContext bindings changed scope: $($stage4E3MissingDeferredBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E3SourceWarningMessages.Count -gt 0) {
-    throw "Stage 4E-3 typed DataTemplate sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-3 typed DataTemplate sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4E3ActualWmc1510Count -gt $stage4E3MaximumWmc1510Count) {
-    throw "Stage 4E-3 WMC1510 count regressed above its ceiling: maximum=$stage4E3MaximumWmc1510Count actual=$stage4E3ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-3 WMC1510 count regressed above its ceiling: maximum=$stage4E3MaximumWmc1510Count actual=$stage4E3ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage4E4LegacyBindingSourceMatches.Count -gt 0) {
-    throw "Stage 4E-4 legacy FileWidgetSettingsSection bindings remain: $($stage4E4LegacyBindingSourceMatches -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-4 legacy FileWidgetSettingsSection bindings remain: $($stage4E4LegacyBindingSourceMatches -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E4MissingCompiledBindings.Count -gt 0) {
-    throw "Stage 4E-4 compiled ViewModel binding counts changed: $($stage4E4MissingCompiledBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-4 compiled ViewModel binding counts changed: $($stage4E4MissingCompiledBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E4MissingViewModelBridgePatterns.Count -gt 0) {
-    throw "Stage 4E-4 typed ViewModel bridge patterns are missing: $($stage4E4MissingViewModelBridgePatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-4 typed ViewModel bridge patterns are missing: $($stage4E4MissingViewModelBridgePatterns -join ', '). See '$summaryPath'.")
 }
 
 if (-not $stage4E4ViewModelBridgeOrderValid) {
-    throw "Stage 4E-4 SettingsWindow ViewModel bridge assignment/clear order changed. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-4 SettingsWindow ViewModel bridge assignment/clear order changed. See '$summaryPath'.")
 }
 
 if ($stage4E4UnexpectedManualBridgePatterns.Count -gt 0) {
-    throw "Stage 4E-4 added redundant manual compiled-binding refresh code: $($stage4E4UnexpectedManualBridgePatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-4 added redundant manual compiled-binding refresh code: $($stage4E4UnexpectedManualBridgePatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E4MissingBehaviorPatterns.Count -gt 0) {
-    throw "Stage 4E-4 notification, selection, or persistence contracts are missing: $($stage4E4MissingBehaviorPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-4 notification, selection, or persistence contracts are missing: $($stage4E4MissingBehaviorPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E4MissingDeferredBindings.Count -gt 0) {
-    throw "Stage 4E-4 deferred runtime/style bindings changed scope: $($stage4E4MissingDeferredBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-4 deferred runtime/style bindings changed scope: $($stage4E4MissingDeferredBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E4SourceWarningMessages.Count -gt 0) {
-    throw "Stage 4E-4 typed ViewModel bridge sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-4 typed ViewModel bridge sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4E4ActualWmc1510Count -gt $stage4E4MaximumWmc1510Count) {
-    throw "Stage 4E-4 WMC1510 count regressed above its ceiling: maximum=$stage4E4MaximumWmc1510Count actual=$stage4E4ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-4 WMC1510 count regressed above its ceiling: maximum=$stage4E4MaximumWmc1510Count actual=$stage4E4ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage4E5LegacyBindingSourceMatches.Count -gt 0) {
-    throw "Stage 4E-5 legacy search-result row bindings remain: $($stage4E5LegacyBindingSourceMatches -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 legacy search-result row bindings remain: $($stage4E5LegacyBindingSourceMatches -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E5MissingCompiledBindings.Count -gt 0) {
-    throw "Stage 4E-5 compiled search-result row binding counts changed: $($stage4E5MissingCompiledBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 compiled search-result row binding counts changed: $($stage4E5MissingCompiledBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E5MissingItemBridgePatterns.Count -gt 0) {
-    throw "Stage 4E-5 internal typed Item bridge patterns are missing: $($stage4E5MissingItemBridgePatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 internal typed Item bridge patterns are missing: $($stage4E5MissingItemBridgePatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E5UnexpectedPublicItemBridgePatterns.Count -gt 0) {
-    throw "Stage 4E-5 exposed SearchResultItem to the XAML activator: $($stage4E5UnexpectedPublicItemBridgePatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 exposed SearchResultItem to the XAML activator: $($stage4E5UnexpectedPublicItemBridgePatterns -join ', '). See '$summaryPath'.")
 }
 
 if (-not $stage4E5ItemRefreshOrderValid) {
-    throw "Stage 4E-5 item preparation no longer precedes the lazy metadata refresh. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 item preparation no longer precedes the lazy metadata refresh. See '$summaryPath'.")
 }
 
 if ($stage4E5MissingBehaviorPatterns.Count -gt 0) {
-    throw "Stage 4E-5 recycle, lazy metadata, selection, or lookup contracts are missing: $($stage4E5MissingBehaviorPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 recycle, lazy metadata, selection, or lookup contracts are missing: $($stage4E5MissingBehaviorPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E5MissingRequiredModelPatterns.Count -gt 0) {
-    throw "Stage 4E-5 SearchResultItem required-member or lazy-metadata contracts changed: $($stage4E5MissingRequiredModelPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 SearchResultItem required-member or lazy-metadata contracts changed: $($stage4E5MissingRequiredModelPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E5UnexpectedObservableModelPatterns.Count -gt 0) {
-    throw "Stage 4E-5 added fake observability to SearchResultItem: $($stage4E5UnexpectedObservableModelPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 added fake observability to SearchResultItem: $($stage4E5UnexpectedObservableModelPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E5UnexpectedDataContextOverridePatterns.Count -gt 0) {
-    throw "Stage 4E-5 replaced the repeater DataContext interaction boundary: $($stage4E5UnexpectedDataContextOverridePatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 replaced the repeater DataContext interaction boundary: $($stage4E5UnexpectedDataContextOverridePatterns -join ', '). See '$summaryPath'.")
 }
 
 if (-not $stage4E5LifecycleOrderValid) {
-    throw "Stage 4E-5 repeater unhook, ItemsSource clear, or ViewModel disposal order changed. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 repeater unhook, ItemsSource clear, or ViewModel disposal order changed. See '$summaryPath'.")
 }
 
 if ($stage4E5MissingDeferredBindings.Count -gt 0) {
-    throw "Stage 4E-5 deferred runtime/style bindings changed scope: $($stage4E5MissingDeferredBindings -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 deferred runtime/style bindings changed scope: $($stage4E5MissingDeferredBindings -join ', '). See '$summaryPath'.")
 }
 
 if ($stage4E5SourceWarningMessages.Count -gt 0) {
-    throw "Stage 4E-5 search-result row sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 search-result row sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage4E5ActualWmc1510Count -ne $stage4E5ExpectedWmc1510Count) {
-    throw "Stage 4E-5 WMC1510 count changed: expected=$stage4E5ExpectedWmc1510Count actual=$stage4E5ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 4E-5 WMC1510 count changed: expected=$stage4E5ExpectedWmc1510Count actual=$stage4E5ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5AMissingDataPathPatterns.Count -gt 0) {
-    throw "Stage 5A Native AOT preview data-root isolation changed: $($stage5AMissingDataPathPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5A Native AOT preview data-root isolation changed: $($stage5AMissingDataPathPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5AMissingLauncherPatterns.Count -gt 0) {
-    throw "Stage 5A Native AOT preview launcher gates are missing: $($stage5AMissingLauncherPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5A Native AOT preview launcher gates are missing: $($stage5AMissingLauncherPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5AUnsafeLauncherPatterns.Count -gt 0) {
-    throw "Stage 5A Native AOT preview launcher contains unsafe production/repository-wide behavior: $($stage5AUnsafeLauncherPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5A Native AOT preview launcher contains unsafe production/repository-wide behavior: $($stage5AUnsafeLauncherPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5A data-root isolation produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5A data-root isolation produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5AActualWmc1510Count -ne $stage5AExpectedWmc1510Count) {
-    throw "Stage 5A WMC1510 count changed: expected=$stage5AExpectedWmc1510Count actual=$stage5AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5A WMC1510 count changed: expected=$stage5AExpectedWmc1510Count actual=$stage5AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B1MissingRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-1 AOT shortcut runner contracts are missing: $($stage5B1MissingRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-1 AOT shortcut runner contracts are missing: $($stage5B1MissingRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B1MissingLaunchPatterns.Count -gt 0 -or -not $stage5B1LaunchOrderValid) {
-    throw "Stage 5B-1 AOT shortcut smoke is not scheduled after successful launch initialization. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-1 AOT shortcut smoke is not scheduled after successful launch initialization. See '$summaryPath'.")
 }
 
 if ($stage5B1MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-1 shortcut smoke script gates are missing: $($stage5B1MissingSmokeScriptPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-1 shortcut smoke script gates are missing: $($stage5B1MissingSmokeScriptPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B1UnsafeRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-1 shortcut runner contains unsafe non-preview behavior: $($stage5B1UnsafeRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-1 shortcut runner contains unsafe non-preview behavior: $($stage5B1UnsafeRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-1 shortcut smoke sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-1 shortcut smoke sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B1ActualWmc1510Count -ne $stage5B1ExpectedWmc1510Count) {
-    throw "Stage 5B-1 WMC1510 count changed: expected=$stage5B1ExpectedWmc1510Count actual=$stage5B1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-1 WMC1510 count changed: expected=$stage5B1ExpectedWmc1510Count actual=$stage5B1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B2AMissingRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-2A AOT shell runner contracts are missing: $($stage5B2AMissingRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2A AOT shell runner contracts are missing: $($stage5B2AMissingRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B2AMissingLaunchPatterns.Count -gt 0 -or -not $stage5B2ALaunchOrderValid) {
-    throw "Stage 5B-2A AOT shell smoke is not scheduled after successful launch initialization. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2A AOT shell smoke is not scheduled after successful launch initialization. See '$summaryPath'.")
 }
 
 if ($stage5B2AMissingServicePatterns.Count -gt 0 -or
     $stage5B2AMissingQuickAccessPatterns.Count -gt 0) {
-    throw "Stage 5B-2A product read boundaries are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2A product read boundaries are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B2AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-2A shell smoke script gates are missing: $($stage5B2AMissingSmokeScriptPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2A shell smoke script gates are missing: $($stage5B2AMissingSmokeScriptPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B2AUnsafeMutationPatterns.Count -gt 0) {
-    throw "Stage 5B-2A read-only runner contains Quick Access mutation operations: $($stage5B2AUnsafeMutationPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2A read-only runner contains Quick Access mutation operations: $($stage5B2AUnsafeMutationPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B2AUnsafeRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-2A shell runner contains unsafe non-preview behavior: $($stage5B2AUnsafeRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2A shell runner contains unsafe non-preview behavior: $($stage5B2AUnsafeRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B2ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-2A shell smoke sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2A shell smoke sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B2AActualWmc1510Count -ne $stage5B2AExpectedWmc1510Count) {
-    throw "Stage 5B-2A WMC1510 count changed: expected=$stage5B2AExpectedWmc1510Count actual=$stage5B2AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2A WMC1510 count changed: expected=$stage5B2AExpectedWmc1510Count actual=$stage5B2AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B2BMissingRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-2B AOT Quick Access mutation runner contracts are missing: $($stage5B2BMissingRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2B AOT Quick Access mutation runner contracts are missing: $($stage5B2BMissingRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B2BMissingLaunchPatterns.Count -gt 0 -or -not $stage5B2BLaunchOrderValid) {
-    throw "Stage 5B-2B AOT Quick Access mutation smoke is not scheduled after successful launch initialization. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2B AOT Quick Access mutation smoke is not scheduled after successful launch initialization. See '$summaryPath'.")
 }
 
 if ($stage5B2BMissingQuickAccessPatterns.Count -gt 0) {
-    throw "Stage 5B-2B product Quick Access mutation boundaries are incomplete: $($stage5B2BMissingQuickAccessPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2B product Quick Access mutation boundaries are incomplete: $($stage5B2BMissingQuickAccessPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B2BMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-2B Quick Access mutation script gates are missing: $($stage5B2BMissingSmokeScriptPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2B Quick Access mutation script gates are missing: $($stage5B2BMissingSmokeScriptPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B2BUnsafeRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-2B Quick Access mutation runner contains unsafe cleanup or direct native mutation: $($stage5B2BUnsafeRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2B Quick Access mutation runner contains unsafe cleanup or direct native mutation: $($stage5B2BUnsafeRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B2BSourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-2B Quick Access mutation sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2B Quick Access mutation sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B2BActualWmc1510Count -ne $stage5B2BExpectedWmc1510Count) {
-    throw "Stage 5B-2B WMC1510 count changed: expected=$stage5B2BExpectedWmc1510Count actual=$stage5B2BActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-2B WMC1510 count changed: expected=$stage5B2BExpectedWmc1510Count actual=$stage5B2BActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B3AMissingRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-3A AOT music-volume read runner contracts are missing: $($stage5B3AMissingRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3A AOT music-volume read runner contracts are missing: $($stage5B3AMissingRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3AMissingLaunchPatterns.Count -gt 0 -or -not $stage5B3ALaunchOrderValid) {
-    throw "Stage 5B-3A AOT music-volume read smoke is not scheduled after successful launch initialization. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3A AOT music-volume read smoke is not scheduled after successful launch initialization. See '$summaryPath'.")
 }
 
 if ($stage5B3AMissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-3A product music-volume read boundaries are incomplete: $($stage5B3AMissingProductPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3A product music-volume read boundaries are incomplete: $($stage5B3AMissingProductPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-3A music-volume read smoke script gates are missing: $($stage5B3AMissingSmokeScriptPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3A music-volume read smoke script gates are missing: $($stage5B3AMissingSmokeScriptPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3AUnsafeMutationPatterns.Count -gt 0) {
-    throw "Stage 5B-3A read-only runner contains music-volume setter operations: $($stage5B3AUnsafeMutationPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3A read-only runner contains music-volume setter operations: $($stage5B3AUnsafeMutationPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3AUnsafeRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-3A music-volume read runner contains unsafe non-preview behavior: $($stage5B3AUnsafeRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3A music-volume read runner contains unsafe non-preview behavior: $($stage5B3AUnsafeRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-3A music-volume read sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3A music-volume read sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B3AActualWmc1510Count -ne $stage5B3AExpectedWmc1510Count) {
-    throw "Stage 5B-3A WMC1510 count changed: expected=$stage5B3AExpectedWmc1510Count actual=$stage5B3AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3A WMC1510 count changed: expected=$stage5B3AExpectedWmc1510Count actual=$stage5B3AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B3BMissingRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-3B AOT system-volume mutation runner contracts are missing: $($stage5B3BMissingRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3B AOT system-volume mutation runner contracts are missing: $($stage5B3BMissingRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3BMissingLaunchPatterns.Count -gt 0 -or -not $stage5B3BLaunchOrderValid) {
-    throw "Stage 5B-3B AOT system-volume mutation smoke is not scheduled after successful launch initialization. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3B AOT system-volume mutation smoke is not scheduled after successful launch initialization. See '$summaryPath'.")
 }
 
 if ($stage5B3BMissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-3B product system-volume setter boundary is incomplete: $($stage5B3BMissingProductPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3B product system-volume setter boundary is incomplete: $($stage5B3BMissingProductPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3BMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-3B system-volume mutation script gates are missing: $($stage5B3BMissingSmokeScriptPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3B system-volume mutation script gates are missing: $($stage5B3BMissingSmokeScriptPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3BUnsafeMutationPatterns.Count -gt 0) {
-    throw "Stage 5B-3B runner bypasses the product setter or reaches session mutation: $($stage5B3BUnsafeMutationPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3B runner bypasses the product setter or reaches session mutation: $($stage5B3BUnsafeMutationPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3BUnsafeRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-3B system-volume runner contains unsafe non-preview behavior: $($stage5B3BUnsafeRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3B system-volume runner contains unsafe non-preview behavior: $($stage5B3BUnsafeRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if (-not $stage5B3BRecoveryOrderValid) {
-    throw "Stage 5B-3B recovery ordering changed: intent must precede mutation and verified recovery must precede intent deletion. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3B recovery ordering changed: intent must precede mutation and verified recovery must precede intent deletion. See '$summaryPath'.")
 }
 
 if ($stage5B3BSourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-3B system-volume mutation sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3B system-volume mutation sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B3BActualWmc1510Count -ne $stage5B3BExpectedWmc1510Count) {
-    throw "Stage 5B-3B WMC1510 count changed: expected=$stage5B3BExpectedWmc1510Count actual=$stage5B3BActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3B WMC1510 count changed: expected=$stage5B3BExpectedWmc1510Count actual=$stage5B3BActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B3CMissingRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-3C AOT session-volume runner contracts are missing: $($stage5B3CMissingRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C AOT session-volume runner contracts are missing: $($stage5B3CMissingRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3CMissingLaunchPatterns.Count -gt 0 -or -not $stage5B3CLaunchOrderValid) {
-    throw "Stage 5B-3C AOT session-volume smoke is not scheduled after the system-volume smoke. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C AOT session-volume smoke is not scheduled after the system-volume smoke. See '$summaryPath'.")
 }
 
 if ($stage5B3CMissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-3C product session getter/setter boundary is incomplete: $($stage5B3CMissingProductPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C product session getter/setter boundary is incomplete: $($stage5B3CMissingProductPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3CMissingFixturePatterns.Count -gt 0) {
-    throw "Stage 5B-3C controlled silent Rust fixture is incomplete: $($stage5B3CMissingFixturePatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C controlled silent Rust fixture is incomplete: $($stage5B3CMissingFixturePatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3CMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-3C session-volume mutation script gates are missing: $($stage5B3CMissingSmokeScriptPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C session-volume mutation script gates are missing: $($stage5B3CMissingSmokeScriptPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3CUnsafeMutationPatterns.Count -gt 0) {
-    throw "Stage 5B-3C runner bypasses the product session setter or reaches system mutation: $($stage5B3CUnsafeMutationPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C runner bypasses the product session setter or reaches system mutation: $($stage5B3CUnsafeMutationPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3CUnsafeRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-3C session-volume runner contains unsafe non-preview behavior: $($stage5B3CUnsafeRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C session-volume runner contains unsafe non-preview behavior: $($stage5B3CUnsafeRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B3CUnsafeFixtureScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-3C fixture/script process isolation is unsafe: $($stage5B3CUnsafeFixtureScriptPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C fixture/script process isolation is unsafe: $($stage5B3CUnsafeFixtureScriptPatterns -join ', '). See '$summaryPath'.")
 }
 
 if (-not $stage5B3CRecoveryOrderValid) {
-    throw "Stage 5B-3C recovery ordering changed: identity/original intent must precede session mutation and verified matched recovery must precede intent deletion. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C recovery ordering changed: identity/original intent must precede session mutation and verified matched recovery must precede intent deletion. See '$summaryPath'.")
 }
 
 if ($stage5B3CSourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-3C session-volume sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C session-volume sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B3CActualWmc1510Count -ne $stage5B3CExpectedWmc1510Count) {
-    throw "Stage 5B-3C WMC1510 count changed: expected=$stage5B3CExpectedWmc1510Count actual=$stage5B3CActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-3C WMC1510 count changed: expected=$stage5B3CExpectedWmc1510Count actual=$stage5B3CActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4AMissingRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-4A managed UI runner contracts are missing: $($stage5B4AMissingRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A managed UI runner contracts are missing: $($stage5B4AMissingRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B4AMissingLaunchPatterns.Count -gt 0 -or -not $stage5B4ALaunchOrderValid) {
-    throw "Stage 5B-4A managed UI smoke is not scheduled after all native boundary smokes. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A managed UI smoke is not scheduled after all native boundary smokes. See '$summaryPath'.")
 }
 
 if ($stage5B4AMissingSettingsPatterns.Count -gt 0) {
-    throw "Stage 5B-4A settings-window diagnostic contracts are missing: $($stage5B4AMissingSettingsPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A settings-window diagnostic contracts are missing: $($stage5B4AMissingSettingsPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B4AMissingSettingsNavigationPatterns.Count -gt 0 -or
     $stage5B4AUnsafeSettingsNavigationPatterns.Count -gt 0) {
-    throw "Stage 5B-4A settings search empty-state AOT projection guard is incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A settings search empty-state AOT projection guard is incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4AMissingSearchPatterns.Count -gt 0 -or
     $stage5B4ASortHandlerCountViolations.Count -gt 0) {
-    throw "Stage 5B-4A search control routing contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A search control routing contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4AMissingLocalePatterns.Count -gt 0) {
-    throw "Stage 5B-4A locale resource diagnostic contracts are missing: $($stage5B4AMissingLocalePatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A locale resource diagnostic contracts are missing: $($stage5B4AMissingLocalePatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B4AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4A managed UI outer-runner gates are missing: $($stage5B4AMissingSmokeScriptPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A managed UI outer-runner gates are missing: $($stage5B4AMissingSmokeScriptPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B4AMissingSmokeOptInIsolation.Count -gt 0) {
-    throw "Stage 5B-4A smoke opt-in isolation is incomplete: $($stage5B4AMissingSmokeOptInIsolation -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A smoke opt-in isolation is incomplete: $($stage5B4AMissingSmokeOptInIsolation -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B4AUnsafeRunnerPatterns.Count -gt 0 -or
     $stage5B4AUnsafeSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4A managed UI matrix contains a forbidden mutation or broad process operation. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A managed UI matrix contains a forbidden mutation or broad process operation. See '$summaryPath'.")
 }
 
 if ($stage5B4AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4A managed UI evidence must use exactly one source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A managed UI evidence must use exactly one source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4A managed UI sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A managed UI sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4AActualWmc1510Count -ne $stage5B4AExpectedWmc1510Count) {
-    throw "Stage 5B-4A WMC1510 count changed: expected=$stage5B4AExpectedWmc1510Count actual=$stage5B4AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4A WMC1510 count changed: expected=$stage5B4AExpectedWmc1510Count actual=$stage5B4AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4B1MissingRunnerPatterns.Count -gt 0) {
-    throw "Stage 5B-4B1 deep-settings runner contracts are missing: $($stage5B4B1MissingRunnerPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B1 deep-settings runner contracts are missing: $($stage5B4B1MissingRunnerPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B4B1MissingSettingsPatterns.Count -gt 0 -or
@@ -9782,145 +9861,145 @@ if ($stage5B4B1MissingSettingsPatterns.Count -gt 0 -or
     $stage5B4B1MissingCapsuleCommandXamlPatterns.Count -gt 0 -or
     $stage5B4B1MissingCapsuleCodeBehindPatterns.Count -gt 0 -or
     $stage5B4B1MissingRoutePatterns.Count -gt 0) {
-    throw "Stage 5B-4B1 deep-settings search, navigation, breadcrumb, or route contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B1 deep-settings search, navigation, breadcrumb, or route contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4B1ActualBindableViewModelPropertyCount -ne
         $stage5B4B1ExpectedBindableViewModelPropertyCount -or
     $stage5B4B1UnsafeBindableViewModelPatterns.Count -gt 0) {
-    throw "Stage 5B-4B1 SettingsViewModel generated binding scope is incomplete or includes unsupported generated commands. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B1 SettingsViewModel generated binding scope is incomplete or includes unsupported generated commands. See '$summaryPath'.")
 }
 
 if ($stage5B4B1MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4B1 managed UI outer-runner gates are missing: $($stage5B4B1MissingSmokeScriptPatterns -join ', '). See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B1 managed UI outer-runner gates are missing: $($stage5B4B1MissingSmokeScriptPatterns -join ', '). See '$summaryPath'.")
 }
 
 if ($stage5B4B1UnsafeMutationPatterns.Count -gt 0) {
-    throw "Stage 5B-4B1 deep-settings matrix contains a forbidden mutation or broad process operation. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B1 deep-settings matrix contains a forbidden mutation or broad process operation. See '$summaryPath'.")
 }
 
 if ($stage5B4B1JsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4B1 deep-settings evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B1 deep-settings evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4B1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4B1 deep-settings sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B1 deep-settings sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4B1ActualWmc1510Count -ne $stage5B4B1ExpectedWmc1510Count) {
-    throw "Stage 5B-4B1 WMC1510 count changed: expected=$stage5B4B1ExpectedWmc1510Count actual=$stage5B4B1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B1 WMC1510 count changed: expected=$stage5B4B1ExpectedWmc1510Count actual=$stage5B4B1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4B2AMissingRunnerPatterns.Count -gt 0 -or
     $stage5B4B2AMissingManagerPatterns.Count -gt 0 -or
     $stage5B4B2AMissingBoundsPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2A managed persistence runner, widget, or HWND bounds contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2A managed persistence runner, widget, or HWND bounds contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4B2AMissingSmokeScriptPatterns.Count -gt 0 -or
     $stage5B4B2AMissingLauncherPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2A three-process outer-runner or natural-exit launcher gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2A three-process outer-runner or natural-exit launcher gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4B2AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4B2A persistence matrix entered deferred content stores, OS interaction, or broad process scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2A persistence matrix entered deferred content stores, OS interaction, or broad process scope. See '$summaryPath'.")
 }
 
 if ($stage5B4B2AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4B2A evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2A evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4B2ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4B2A persistence sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2A persistence sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4B2AActualWmc1510Count -ne $stage5B4B2AExpectedWmc1510Count) {
-    throw "Stage 5B-4B2A WMC1510 count changed: expected=$stage5B4B2AExpectedWmc1510Count actual=$stage5B4B2AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2A WMC1510 count changed: expected=$stage5B4B2AExpectedWmc1510Count actual=$stage5B4B2AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B1MissingRunnerPatterns.Count -gt 0 -or
     $stage5B4B2B1MissingSurfacePatterns.Count -gt 0 -or
     $stage5B4B2B1MissingProductSurfacePatterns.Count -gt 0 -or
     $stage5B4B2B1MissingManagerPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B1 Quick Capture runner, real UI timer, store, attachment, or host contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B1 Quick Capture runner, real UI timer, store, attachment, or host contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B1MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B1 three-process outer-runner, cleanup, or natural-exit gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B1 three-process outer-runner, cleanup, or natural-exit gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B1ForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B1 entered a deferred store, OS interaction, direct file mutation, or broad widget scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B1 entered a deferred store, OS interaction, direct file mutation, or broad widget scope. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B1JsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4B2B1 evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B1 evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4B2B1 Quick Capture sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B1 Quick Capture sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B1ActualWmc1510Count -ne $stage5B4B2B1ExpectedWmc1510Count) {
-    throw "Stage 5B-4B2B1 WMC1510 count changed: expected=$stage5B4B2B1ExpectedWmc1510Count actual=$stage5B4B2B1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B1 WMC1510 count changed: expected=$stage5B4B2B1ExpectedWmc1510Count actual=$stage5B4B2B1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2AMissingRunnerPatterns.Count -gt 0 -or
     $stage5B4B2B2AMissingSurfacePatterns.Count -gt 0 -or
     $stage5B4B2B2AMissingProductPatterns.Count -gt 0 -or
     $stage5B4B2B2AMissingManagerPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B2A Todo runner, real UI timer/save paths, store, or host contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2A Todo runner, real UI timer/save paths, store, or host contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B2A three-process outer-runner, cleanup, or natural-exit gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2A three-process outer-runner, cleanup, or natural-exit gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B2A entered deferred Todo steps/attachments/reminders/recurrence, direct mutation, OS interaction, or broad widget scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2A entered deferred Todo steps/attachments/reminders/recurrence, direct mutation, OS interaction, or broad widget scope. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4B2B2A evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2A evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4B2B2A Todo sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2A Todo sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2AActualWmc1510Count -ne $stage5B4B2B2AExpectedWmc1510Count) {
-    throw "Stage 5B-4B2B2A WMC1510 count changed: expected=$stage5B4B2B2AExpectedWmc1510Count actual=$stage5B4B2B2AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2A WMC1510 count changed: expected=$stage5B4B2B2AExpectedWmc1510Count actual=$stage5B4B2B2AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B1MissingRunnerPatterns.Count -gt 0 -or
     $stage5B4B2B2B1MissingSurfacePatterns.Count -gt 0 -or
     $stage5B4B2B2B1MissingProductPatterns.Count -gt 0 -or
     $stage5B4B2B2B1MissingManagerPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B2B1 Todo steps runner, real row UI, product paths, projection, store, or host contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B1 Todo steps runner, real row UI, product paths, projection, store, or host contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B1MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B2B1 three-process outer-runner, cleanup, process, or natural-exit gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B1 three-process outer-runner, cleanup, process, or natural-exit gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B1ForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B2B1 entered deferred Todo attachments/reminders/recurrence, direct store mutation, OS interaction, or broad widget scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B1 entered deferred Todo attachments/reminders/recurrence, direct store mutation, OS interaction, or broad widget scope. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B1GeneratedBindableCount -ne 3) {
-    throw "Stage 5B-4B2B2B1 must expose exactly the three exercised Todo AOT DataContext types. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B1 must expose exactly the three exercised Todo AOT DataContext types. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B1JsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4B2B2B1 evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B1 evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4B2B2B1 Todo steps sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B1 Todo steps sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B1ActualWmc1510Count -ne $stage5B4B2B2B1ExpectedWmc1510Count) {
-    throw "Stage 5B-4B2B2B1 WMC1510 count changed: expected=$stage5B4B2B2B1ExpectedWmc1510Count actual=$stage5B4B2B2B1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B1 WMC1510 count changed: expected=$stage5B4B2B2B1ExpectedWmc1510Count actual=$stage5B4B2B2B1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B2MissingRunnerPatterns.Count -gt 0 -or
@@ -9928,151 +10007,151 @@ if ($stage5B4B2B2B2MissingRunnerPatterns.Count -gt 0 -or
     $stage5B4B2B2B2MissingTilePatterns.Count -gt 0 -or
     $stage5B4B2B2B2MissingProductPatterns.Count -gt 0 -or
     $stage5B4B2B2B2MissingManagerPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B2B2 Todo managed attachment runner, real tile UI, product paths, storage, projection, or host contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B2 Todo managed attachment runner, real tile UI, product paths, storage, projection, or host contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B2MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B2B2 three-process outer-runner, hash, physical-delete, cleanup, process, or natural-exit gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B2 three-process outer-runner, hash, physical-delete, cleanup, process, or natural-exit gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B2ForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4B2B2B2 entered deferred Todo reminders/recurrence, direct store mutation, OS picker/shell interaction, Rust ABI expansion, or broad widget scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B2 entered deferred Todo reminders/recurrence, direct store mutation, OS picker/shell interaction, Rust ABI expansion, or broad widget scope. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B2GeneratedBindableCount -ne 3) {
-    throw "Stage 5B-4B2B2B2 must retain exactly the three exercised Todo AOT DataContext bridge types. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B2 must retain exactly the three exercised Todo AOT DataContext bridge types. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B2JsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4B2B2B2 evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B2 evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B2SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4B2B2B2 Todo managed attachment sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B2 Todo managed attachment sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4B2B2B2ActualWmc1510Count -ne $stage5B4B2B2B2ExpectedWmc1510Count) {
-    throw "Stage 5B-4B2B2B2 WMC1510 count changed: expected=$stage5B4B2B2B2ExpectedWmc1510Count actual=$stage5B4B2B2B2ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2B2B2 WMC1510 count changed: expected=$stage5B4B2B2B2ExpectedWmc1510Count actual=$stage5B4B2B2B2ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C1MissingRunnerPatterns.Count -gt 0 -or
     $stage5B4B2C1MissingSurfacePatterns.Count -gt 0 -or
     $stage5B4B2C1MissingProductPatterns.Count -gt 0 -or
     $stage5B4B2C1MissingManagerPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2C1 Glance runner, product policy, ViewModel, decoded image surface, or host contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C1 Glance runner, product policy, ViewModel, decoded image surface, or host contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C1MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2C1 three-process outer-runner, image hash, process, cleanup, or postflight gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C1 three-process outer-runner, image hash, process, cleanup, or postflight gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C1ForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4B2C1 entered online images, network, picker/folder interaction, direct file mutation, Rust ABI expansion, or broad widget scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C1 entered online images, network, picker/folder interaction, direct file mutation, Rust ABI expansion, or broad widget scope. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C1GeneratedBindableCount -ne 1 -or
     $stage5B4B2C1BindablePropertyCount -ne 33) {
-    throw "Stage 5B-4B2C1 must expose exactly one narrow Glance AOT DataContext bridge with 33 XAML properties. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C1 must expose exactly one narrow Glance AOT DataContext bridge with 33 XAML properties. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C1JsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4B2C1 evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C1 evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4B2C1 Glance persistence sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C1 Glance persistence sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C1ActualWmc1510Count -ne $stage5B4B2C1ExpectedWmc1510Count) {
-    throw "Stage 5B-4B2C1 WMC1510 count changed: expected=$stage5B4B2C1ExpectedWmc1510Count actual=$stage5B4B2C1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C1 WMC1510 count changed: expected=$stage5B4B2C1ExpectedWmc1510Count actual=$stage5B4B2C1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2AMissingRunnerPatterns.Count -gt 0 -or
     $stage5B4B2C2AMissingPolicyPatterns.Count -gt 0 -or
     $stage5B4B2C2AMissingManagerPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2C2A Weather settings runner, product policy, metadata, or suppressed-host contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2A Weather settings runner, product policy, metadata, or suppressed-host contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2C2A three-process outer-runner, equality, process, offline-log, cleanup, or postflight gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2A three-process outer-runner, equality, process, offline-log, cleanup, or postflight gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4B2C2A entered deferred Weather surface/data/network/location/picker or Rust paths. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2A entered deferred Weather surface/data/network/location/picker or Rust paths. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4B2C2A evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2A evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4B2C2A Weather settings persistence sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2A Weather settings persistence sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2AActualWmc1510Count -ne $stage5B4B2C2AExpectedWmc1510Count) {
-    throw "Stage 5B-4B2C2A WMC1510 count changed: expected=$stage5B4B2C2AExpectedWmc1510Count actual=$stage5B4B2C2AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2A WMC1510 count changed: expected=$stage5B4B2C2AExpectedWmc1510Count actual=$stage5B4B2C2AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2BMissingRunnerPatterns.Count -gt 0 -or
     $stage5B4B2C2BMissingFixturePatterns.Count -gt 0 -or
     $stage5B4B2C2BMissingSurfacePatterns.Count -gt 0 -or
     $stage5B4B2C2BMissingManagerPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2C2B WeatherData fixture, real surface, generated binding, host, or runner contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2B WeatherData fixture, real surface, generated binding, host, or runner contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2BBindableAttributeCount -ne 3) {
-    throw "Stage 5B-4B2C2B must expose exactly three generated Weather bindable providers. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2B must expose exactly three generated Weather bindable providers. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2BMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4B2C2B three-process outer-runner, equality, fixture-log, offline, cleanup, or postflight gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2B three-process outer-runner, equality, fixture-log, offline, cleanup, or postflight gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2BForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4B2C2B fixture or real-surface probe entered production network, location, picker, file-write, or Rust paths. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2B fixture or real-surface probe entered production network, location, picker, file-write, or Rust paths. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2BJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4B2C2B evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2B evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2BSourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4B2C2B Weather surface persistence sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2B Weather surface persistence sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4B2C2BActualWmc1510Count -ne $stage5B4B2C2BExpectedWmc1510Count) {
-    throw "Stage 5B-4B2C2B WMC1510 count changed: expected=$stage5B4B2C2BExpectedWmc1510Count actual=$stage5B4B2C2BActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4B2C2B WMC1510 count changed: expected=$stage5B4B2C2BExpectedWmc1510Count actual=$stage5B4B2C2BActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C1AMissingRunnerPatterns.Count -gt 0 -or
     $stage5B4C1AMissingFixturePatterns.Count -gt 0 -or
     $stage5B4C1AMissingSurfacePatterns.Count -gt 0 -or
     $stage5B4C1AMissingBindablePatterns.Count -gt 0) {
-    throw "Stage 5B-4C1A owned local-file fixture, real surface, operation, or generated binding contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1A owned local-file fixture, real surface, operation, or generated binding contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C1ABindableAttributeCount -ne 3) {
-    throw "Stage 5B-4C1A must expose exactly three narrow generated File Widget bindable providers. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1A must expose exactly three narrow generated File Widget bindable providers. See '$summaryPath'.")
 }
 
 if ($stage5B4C1AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1A three-process outer-runner, independent disk, equality, cleanup, or postflight gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1A three-process outer-runner, independent disk, equality, cleanup, or postflight gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C1AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C1A entered deferred Shell, picker, drag/drop, recycle, hotkey, media, network, or Rust paths. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1A entered deferred Shell, picker, drag/drop, recycle, hotkey, media, network, or Rust paths. See '$summaryPath'.")
 }
 
 if ($stage5B4C1AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C1A evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1A evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C1ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C1A local-file surface sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1A local-file surface sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C1AActualWmc1510Count -ne $stage5B4C1AExpectedWmc1510Count) {
-    throw "Stage 5B-4C1A WMC1510 count changed: expected=$stage5B4C1AExpectedWmc1510Count actual=$stage5B4C1AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1A WMC1510 count changed: expected=$stage5B4C1AExpectedWmc1510Count actual=$stage5B4C1AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B1MissingRunnerPatterns.Count -gt 0 -or
@@ -10080,32 +10159,32 @@ if ($stage5B4C1B1MissingRunnerPatterns.Count -gt 0 -or
     $stage5B4C1B1MissingProductPatterns.Count -gt 0 -or
     $stage5B4C1B1MissingMenuPatterns.Count -gt 0 -or
     $stage5B4C1B1MissingScenarioPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1B1 scenario, owned identity, product menu, operation, or evidence contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B1 scenario, owned identity, product menu, operation, or evidence contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B1MissingNativePatterns.Count -gt 0 -or
     -not $stage5B4C1B1RestoreInvokeAfterEnumeration) {
-    throw "Stage 5B-4C1B1 exact native Recycle Bin ABI, full enumeration, or unique-restore contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B1 exact native Recycle Bin ABI, full enumeration, or unique-restore contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B1MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1B1 three-process runner, exact hash, compensation, isolation, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B1 three-process runner, exact hash, compensation, isolation, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B1ForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C1B1 entered deferred Shell progress, Properties, picker, physical drag/drop, or broad Recycle Bin paths. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B1 entered deferred Shell progress, Properties, picker, physical drag/drop, or broad Recycle Bin paths. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B1JsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C1B1 evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B1 evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C1B1 Recycle Bin sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B1 Recycle Bin sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B1ActualWmc1510Count -ne $stage5B4C1B1ExpectedWmc1510Count) {
-    throw "Stage 5B-4C1B1 WMC1510 count changed: expected=$stage5B4C1B1ExpectedWmc1510Count actual=$stage5B4C1B1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B1 WMC1510 count changed: expected=$stage5B4C1B1ExpectedWmc1510Count actual=$stage5B4C1B1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2AMissingRunnerPatterns.Count -gt 0 -or
@@ -10113,31 +10192,31 @@ if ($stage5B4C1B2AMissingRunnerPatterns.Count -gt 0 -or
     $stage5B4C1B2AMissingProductPatterns.Count -gt 0 -or
     $stage5B4C1B2AMissingMenuPatterns.Count -gt 0 -or
     $stage5B4C1B2AMissingScenarioPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1B2A scenario, owned fixture, real owner, product menu, or Shell move branch contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2A scenario, owned fixture, real owner, product menu, or Shell move branch contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1B2A three-process runner, exact hash, compensation, isolation, runtime-log, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2A three-process runner, exact hash, compensation, isolation, runtime-log, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C1B2A entered deferred Properties, picker, physical drag/drop, IFileOperation, or new Rust ABI scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2A entered deferred Properties, picker, physical drag/drop, IFileOperation, or new Rust ABI scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C1B2ARustAbiUnchanged) {
-    throw "Stage 5B-4C1B2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C1B2A evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2A evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C1B2A Shell move sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2A Shell move sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2AActualWmc1510Count -ne $stage5B4C1B2AExpectedWmc1510Count) {
-    throw "Stage 5B-4C1B2A WMC1510 count changed: expected=$stage5B4C1B2AExpectedWmc1510Count actual=$stage5B4C1B2AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2A WMC1510 count changed: expected=$stage5B4C1B2AExpectedWmc1510Count actual=$stage5B4C1B2AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2BMissingRunnerPatterns.Count -gt 0 -or
@@ -10145,31 +10224,31 @@ if ($stage5B4C1B2BMissingRunnerPatterns.Count -gt 0 -or
     $stage5B4C1B2BMissingProductPatterns.Count -gt 0 -or
     $stage5B4C1B2BMissingMenuPatterns.Count -gt 0 -or
     $stage5B4C1B2BMissingScenarioPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1B2B scenario, owned target, product menu, real owner, dialog, or close contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2B scenario, owned target, product menu, real owner, dialog, or close contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2BMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1B2B real-dialog runner, hash, isolation, natural-exit, runtime-log, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2B real-dialog runner, hash, isolation, natural-exit, runtime-log, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2BForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C1B2B entered deferred picker, physical drag/drop, IFileOperation, Recycle Bin, Shell move, or new Rust ABI scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2B entered deferred picker, physical drag/drop, IFileOperation, Recycle Bin, Shell move, or new Rust ABI scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C1B2BRustAbiUnchanged) {
-    throw "Stage 5B-4C1B2B changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2B changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2BJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C1B2B evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2B evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2BSourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C1B2B file Properties sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2B file Properties sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C1B2BActualWmc1510Count -ne $stage5B4C1B2BExpectedWmc1510Count) {
-    throw "Stage 5B-4C1B2B WMC1510 count changed: expected=$stage5B4C1B2BExpectedWmc1510Count actual=$stage5B4C1B2BActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1B2B WMC1510 count changed: expected=$stage5B4C1B2BExpectedWmc1510Count actual=$stage5B4C1B2BActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C1MissingRunnerPatterns.Count -gt 0 -or
@@ -10177,31 +10256,31 @@ if ($stage5B4C1C1MissingRunnerPatterns.Count -gt 0 -or
     $stage5B4C1C1MissingFixturePatterns.Count -gt 0 -or
     $stage5B4C1C1MissingProbePatterns.Count -gt 0 -or
     $stage5B4C1C1MissingScenarioPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1C1 modern picker, owner, cancel/select, StorageItems, import, or restart contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C1 modern picker, owner, cancel/select, StorageItems, import, or restart contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C1MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1C1 real picker UI Automation, isolation, natural-exit, fingerprint, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C1 real picker UI Automation, isolation, natural-exit, fingerprint, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C1ForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C1C1 entered deferred OLE/native drop, IFileOperation, global clipboard mutation, or new Rust ABI scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C1 entered deferred OLE/native drop, IFileOperation, global clipboard mutation, or new Rust ABI scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C1C1RustAbiUnchanged) {
-    throw "Stage 5B-4C1C1 changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C1 changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C1JsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C1C1 evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C1 evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C1C1 picker/StorageItems sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C1 picker/StorageItems sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C1ActualWmc1510Count -ne $stage5B4C1C1ExpectedWmc1510Count) {
-    throw "Stage 5B-4C1C1 WMC1510 count changed: expected=$stage5B4C1C1ExpectedWmc1510Count actual=$stage5B4C1C1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C1 WMC1510 count changed: expected=$stage5B4C1C1ExpectedWmc1510Count actual=$stage5B4C1C1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C2AMissingRunnerPatterns.Count -gt 0 -or
@@ -10210,268 +10289,290 @@ if ($stage5B4C1C2AMissingRunnerPatterns.Count -gt 0 -or
     $stage5B4C1C2AMissingProbePatterns.Count -gt 0 -or
     $stage5B4C1C2AMissingScenarioPatterns.Count -gt 0 -or
     $stage5B4C1C2AMissingVisualPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1C2A native OLE callback, stale-highlight, copy/move, progress, or visual contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C2A native OLE callback, stale-highlight, copy/move, progress, or visual contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C2AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C1C2A three-process runner, large-file, hash, isolation, natural-exit, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C2A three-process runner, large-file, hash, isolation, natural-exit, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C2AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C1C2A entered global clipboard, synthetic mouse, Explorer automation, or new Rust ABI scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C2A entered global clipboard, synthetic mouse, Explorer automation, or new Rust ABI scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C1C2ARustAbiUnchanged) {
-    throw "Stage 5B-4C1C2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C2AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C1C2A evidence must reuse the single source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C2A evidence must reuse the single source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C2ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C1C2A native-drop sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C2A native-drop sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C1C2AActualWmc1510Count -ne $stage5B4C1C2AExpectedWmc1510Count) {
-    throw "Stage 5B-4C1C2A WMC1510 count changed: expected=$stage5B4C1C2AExpectedWmc1510Count actual=$stage5B4C1C2AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C1C2A WMC1510 count changed: expected=$stage5B4C1C2AExpectedWmc1510Count actual=$stage5B4C1C2AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C2AMissingScenarioPatterns.Count -gt 0 -or
     $stage5B4C2AMissingHelperPatterns.Count -gt 0 -or
     $stage5B4C2AMissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-4C2A registration, dispatch, rollback, or reserved-hook lifecycle contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C2A registration, dispatch, rollback, or reserved-hook lifecycle contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C2AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C2A two-process, isolation, fingerprint, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C2A two-process, isolation, fingerprint, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C2AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C2A claimed physical input evidence or entered new Rust ABI scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C2A claimed physical input evidence or entered new Rust ABI scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C2ARustAbiUnchanged) {
-    throw "Stage 5B-4C2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C2AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C2A evidence must use one source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C2A evidence must use one source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C2ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C2A hotkey sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C2A hotkey sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C2AActualWmc1510Count -ne $stage5B4C2AExpectedWmc1510Count) {
-    throw "Stage 5B-4C2A WMC1510 count changed: expected=$stage5B4C2AExpectedWmc1510Count actual=$stage5B4C2AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C2A WMC1510 count changed: expected=$stage5B4C2AExpectedWmc1510Count actual=$stage5B4C2AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C3AMissingScenarioPatterns.Count -gt 0 -or
     $stage5B4C3AMissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3A deterministic candidate, snooze, recurrence, restore, or cleanup contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3A deterministic candidate, snooze, recurrence, restore, or cleanup contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C3AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3A five-process, isolation, continuity, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3A five-process, isolation, continuity, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C3AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C3A entered real system notification or new Rust ABI scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3A entered real system notification or new Rust ABI scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C3ARustAbiUnchanged) {
-    throw "Stage 5B-4C3A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C3AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C3A evidence must use one source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3A evidence must use one source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C3ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C3A Todo recurrence/reminder sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3A Todo recurrence/reminder sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C3AActualWmc1510Count -ne $stage5B4C3AExpectedWmc1510Count) {
-    throw "Stage 5B-4C3A WMC1510 count changed: expected=$stage5B4C3AExpectedWmc1510Count actual=$stage5B4C3AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3A WMC1510 count changed: expected=$stage5B4C3AExpectedWmc1510Count actual=$stage5B4C3AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B1MissingScenarioPatterns.Count -gt 0 -or
     $stage5B4C3B1MissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B1 notification registration, payload, display, history, or exact cleanup contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B1 notification registration, payload, display, history, or exact cleanup contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B1MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B1 three-process, real-display, isolation, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B1 three-process, real-display, isolation, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B1ForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B1 entered activation, broad notification deletion, or new Rust ABI scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B1 entered activation, broad notification deletion, or new Rust ABI scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C3B1RustAbiUnchanged) {
-    throw "Stage 5B-4C3B1 changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B1 changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B1JsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C3B1 evidence must use one source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B1 evidence must use one source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C3B1 Todo notification sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B1 Todo notification sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B1ActualWmc1510Count -ne $stage5B4C3B1ExpectedWmc1510Count) {
-    throw "Stage 5B-4C3B1 WMC1510 count changed: expected=$stage5B4C3B1ExpectedWmc1510Count actual=$stage5B4C3B1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B1 WMC1510 count changed: expected=$stage5B4C3B1ExpectedWmc1510Count actual=$stage5B4C3B1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2AMissingScenarioPatterns.Count -gt 0 -or
     $stage5B4C3B2AMissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2A activation grammar, routing, mutation, rejection, or persistence contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2A activation grammar, routing, mutation, rejection, or persistence contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2A three-process, isolation, continuity, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2A three-process, isolation, continuity, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2A entered external notification activation, broad notification deletion, or new Rust ABI scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2A entered external notification activation, broad notification deletion, or new Rust ABI scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C3B2ARustAbiUnchanged) {
-    throw "Stage 5B-4C3B2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2AJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C3B2A evidence must use one source-generated JSON call. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2A evidence must use one source-generated JSON call. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C3B2A Todo activation sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2A Todo activation sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2AActualWmc1510Count -ne $stage5B4C3B2AExpectedWmc1510Count) {
-    throw "Stage 5B-4C3B2A WMC1510 count changed: expected=$stage5B4C3B2AExpectedWmc1510Count actual=$stage5B4C3B2AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2A WMC1510 count changed: expected=$stage5B4C3B2AExpectedWmc1510Count actual=$stage5B4C3B2AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B1MissingScenarioPatterns.Count -gt 0 -or
     $stage5B4C3B2B1MissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2B1 typed envelope, startup drain, UserInput, or single-instance contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B1 typed envelope, startup drain, UserInput, or single-instance contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B1MissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2B1 five-process, isolation, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B1 five-process, isolation, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B1ForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2B1 entered real Windows notification display/activation, broad deletion, legacy argument-only forwarding, or new Rust ABI scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B1 entered real Windows notification display/activation, broad deletion, legacy argument-only forwarding, or new Rust ABI scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C3B2B1RustAbiUnchanged) {
-    throw "Stage 5B-4C3B2B1 changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B1 changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B1ScenarioJsonSerializeCallCount -ne 1 -or
     $stage5B4C3B2B1StoreJsonCallCount -ne 2) {
-    throw "Stage 5B-4C3B2B1 must retain one fixture JSON call and two source-generated envelope-store JSON calls. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B1 must retain one fixture JSON call and two source-generated envelope-store JSON calls. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B1SourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C3B2B1 forwarding sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B1 forwarding sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B1ActualWmc1510Count -ne $stage5B4C3B2B1ExpectedWmc1510Count) {
-    throw "Stage 5B-4C3B2B1 WMC1510 count changed: expected=$stage5B4C3B2B1ExpectedWmc1510Count actual=$stage5B4C3B2B1ActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B1 WMC1510 count changed: expected=$stage5B4C3B2B1ExpectedWmc1510Count actual=$stage5B4C3B2B1ActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2AMissingScenarioPatterns.Count -gt 0 -or
     $stage5B4C3B2B2AMissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2B2A Todo target, content-ready, or visible-refresh contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2A Todo target, content-ready, or visible-refresh contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2AMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2B2A isolated surface, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2A isolated surface, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2AForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2B2A mislabeled controlled input as a real Windows click, entered broad notification deletion, or expanded Rust scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2A mislabeled controlled input as a real Windows click, entered broad notification deletion, or expanded Rust scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C3B2B2ARustAbiUnchanged) {
-    throw "Stage 5B-4C3B2B2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2A changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2AScenarioJsonSerializeCallCount -ne 0 -or
     $stage5B4C3B2B2AManagedUiJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C3B2B2A must reuse the one source-generated managed UI evidence serializer without adding JSON calls. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2A must reuse the one source-generated managed UI evidence serializer without adding JSON calls. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2ASourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C3B2B2A Todo surface sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2A Todo surface sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2AActualWmc1510Count -ne $stage5B4C3B2B2AExpectedWmc1510Count) {
-    throw "Stage 5B-4C3B2B2A WMC1510 count changed: expected=$stage5B4C3B2B2AExpectedWmc1510Count actual=$stage5B4C3B2B2AActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2A WMC1510 count changed: expected=$stage5B4C3B2B2AExpectedWmc1510Count actual=$stage5B4C3B2B2AActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2BMissingScenarioPatterns.Count -gt 0 -or
     $stage5B4C3B2B2BMissingProductPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2B2B Windows activation provenance, real click, Todo route, or visible-surface contracts are incomplete. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2B Windows activation provenance, real click, Todo route, or visible-surface contracts are incomplete. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2BMissingSmokeScriptPatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2B2B interactive running/cold-start, isolation, provenance, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2B interactive running/cold-start, isolation, provenance, natural-exit, archive, or cleanup gates are missing. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2BForbiddenScopePatterns.Count -gt 0) {
-    throw "Stage 5B-4C3B2B2B used synthetic input/UI Automation, direct fixture notification APIs, broad notification deletion, or expanded Rust scope. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2B used synthetic input/UI Automation, direct fixture notification APIs, broad notification deletion, or expanded Rust scope. See '$summaryPath'.")
 }
 
 if (-not $stage5B4C3B2B2BRustAbiUnchanged) {
-    throw "Stage 5B-4C3B2B2B changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2B changed the frozen Rust ABI 2 / capability 511 / ten-export surface. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2BScenarioJsonSerializeCallCount -ne 0 -or
     $stage5B4C3B2B2BManagedUiJsonSerializeCallCount -ne 1) {
-    throw "Stage 5B-4C3B2B2B must reuse the one source-generated managed UI evidence serializer without adding JSON calls. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2B must reuse the one source-generated managed UI evidence serializer without adding JSON calls. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2BSourceWarningMessages.Count -gt 0) {
-    throw "Stage 5B-4C3B2B2B notification-click sources produced AOT warnings. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2B notification-click sources produced AOT warnings. See '$summaryPath'.")
 }
 
 if ($stage5B4C3B2B2BActualWmc1510Count -ne $stage5B4C3B2B2BExpectedWmc1510Count) {
-    throw "Stage 5B-4C3B2B2B WMC1510 count changed: expected=$stage5B4C3B2B2BExpectedWmc1510Count actual=$stage5B4C3B2B2BActualWmc1510Count. See '$summaryPath'."
+    $auditFailures.Add("Stage 5B-4C3B2B2B WMC1510 count changed: expected=$stage5B4C3B2B2BExpectedWmc1510Count actual=$stage5B4C3B2B2BActualWmc1510Count. See '$summaryPath'.")
 }
 
 if ($unexpectedWarningCodes.Count -gt 0) {
-    throw "The Stage 5B-4C3B2B2B AOT warning set expanded: $($unexpectedWarningCodes -join ', '). See '$summaryPath'."
+    $auditFailures.Add("The Stage 5B-4C3B2B2B AOT warning set expanded: $($unexpectedWarningCodes -join ', '). See '$summaryPath'.")
 }
 
 if ($shortcutAlwaysThrowMessages.Count -gt 0) {
-    throw "Legacy shortcut COM constructors remain reachable in Native AOT. See '$summaryPath'."
+    $auditFailures.Add("Legacy shortcut COM constructors remain reachable in Native AOT. See '$summaryPath'.")
 }
 
 if ($musicVolumeAlwaysThrowMessages.Count -gt 0) {
-    throw "Legacy music-volume COM constructors remain reachable in Native AOT. See '$summaryPath'."
+    $auditFailures.Add("Legacy music-volume COM constructors remain reachable in Native AOT. See '$summaryPath'.")
 }
 
 if ($explorerShellAlwaysThrowMessages.Count -gt 0) {
-    throw "Legacy Explorer-shell dynamic COM remains reachable in Native AOT. See '$summaryPath'."
+    $auditFailures.Add("Legacy Explorer-shell dynamic COM remains reachable in Native AOT. See '$summaryPath'.")
 }
 
 if ($quickAccessAlwaysThrowMessages.Count -gt 0) {
-    throw "Legacy Quick Access dynamic COM remains reachable in Native AOT. See '$summaryPath'."
+    $auditFailures.Add("Legacy Quick Access dynamic COM remains reachable in Native AOT. See '$summaryPath'.")
 }
 
 if ($missingExpectedAlwaysThrowTypes.Count -gt 0 -or
     $unexpectedAlwaysThrowMessages.Count -gt 0) {
-    throw "The Stage 5B-4A remaining always-throw contract changed. See '$summaryPath'."
+    $auditFailures.Add("The Stage 5B-4A remaining always-throw contract changed. See '$summaryPath'.")
 }
 
 if ($RequireCleanAnalysis.IsPresent -and
     ($warningCodes.Count -gt 0 -or $alwaysThrowMessages.Count -gt 0)) {
-    throw "AOT publish passed structural validation, but analysis is not clean. See '$summaryPath'."
+    $auditFailures.Add("AOT publish passed structural validation, but analysis is not clean. See '$summaryPath'.")
+}
+
+# Every analysis gate has now run; report all findings at once and fail once.
+if ($auditFailures.Count -gt 0) {
+    $summary['auditFindings'] = @($auditFailures)
+    $summaryJson = $summary | ConvertTo-Json -Depth 6
+    [System.IO.File]::WriteAllText(
+        $summaryPath,
+        $summaryJson + [Environment]::NewLine,
+        [System.Text.UTF8Encoding]::new($false))
+
+    foreach ($auditFailure in $auditFailures) {
+        $failureStage = "analysis"
+        if ($auditFailure -match '^(?:The )?Stage (?<stage>[0-9][0-9A-Z-]*)') {
+            $failureStage = $Matches['stage']
+        }
+
+        Write-Host "FAIL [$failureStage] $auditFailure"
+    }
+
+    Write-Host "=== AUDIT FAILED: $($auditFailures.Count) findings ==="
+    exit 1
 }
 
 [PSCustomObject]@{

@@ -1,3 +1,4 @@
+using DeskBox.Helpers;
 using DeskBox.Models;
 using DeskBox.Services;
 using Microsoft.UI.Xaml;
@@ -19,6 +20,20 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
     {
         InitializeComponent();
         Loaded += (_, _) => Refresh();
+        // Code-built rows snapshot their themed brushes at build time, and
+        // the theme picker lives in this same window: re-run the row
+        // builders when the applied theme flips so they follow along like
+        // XAML ThemeResources do.
+        ActualThemeChanged += (_, _) =>
+        {
+            RefreshWidgetCards();
+            BuildTypeOverview();
+            if (RuleDetailPanel.Visibility == Visibility.Visible)
+            {
+                BuildCategoryChecks();
+                BuildSubtypeChecks();
+            }
+        };
     }
 
     public void Refresh()
@@ -55,6 +70,8 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
         AutoToggleCard.Visibility = hasEffectiveRules
             ? Visibility.Visible
             : Visibility.Collapsed;
+        AutoIntervalCard.Visibility = AutoToggleCard.Visibility;
+        RefreshAutoIntervalOptions(settingsService);
         OrganizationSummaryCard.Header = settingsService.Settings.DesktopAutoOrganizationEnabled
             ? T("DesktopOrganization.Status.Running")
             : T("DesktopOrganization.Status.Ready");
@@ -68,6 +85,15 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
         RefreshWidgetCards();
         BuildTypeOverview();
     }
+
+    /// <summary>
+    /// Application-scope themed lookups follow the system theme, which
+    /// inverts whenever the app's theme override disagrees with it;
+    /// resolve against this section's window-scoped theme instead.
+    /// </summary>
+    private Microsoft.UI.Xaml.Media.Brush SecondaryTextBrush() =>
+        NeutralInteractionBrush.ResolveThemedResource("TextFillColorSecondaryBrush", this) ??
+        new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x9E, 0x9E, 0x9E));
 
     private void RefreshWidgetCards()
     {
@@ -91,45 +117,16 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
         {
             DesktopOrganizationRule? rule = settings.DesktopOrganizationRules.FirstOrDefault(candidate =>
                 string.Equals(candidate.TargetWidgetId, widget.Id, StringComparison.Ordinal));
-            var button = new Button
+            var card = new CommunityToolkit.WinUI.Controls.SettingsCard
             {
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Tag = widget.Id,
-                Padding = new Thickness(16, 11, 16, 11)
+                IsClickEnabled = true,
+                Header = widget.Name,
+                Description = BuildRuleSummary(rule)
             };
-            button.Click += WidgetRuleButton_Click;
-
-            var grid = new Grid { ColumnSpacing = 12 };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var icon = new FontIcon { Glyph = "\uE8B7", FontSize = 18, VerticalAlignment = VerticalAlignment.Center };
-            var text = new StackPanel { Spacing = 3 };
-            text.Children.Add(new TextBlock
-            {
-                Text = widget.Name,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-            });
-            text.Children.Add(new TextBlock
-            {
-                Text = BuildRuleSummary(rule),
-                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-                TextWrapping = TextWrapping.Wrap
-            });
-            var chevron = new FontIcon
-            {
-                Glyph = "\uE76C",
-                FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(text, 1);
-            Grid.SetColumn(chevron, 2);
-            grid.Children.Add(icon);
-            grid.Children.Add(text);
-            grid.Children.Add(chevron);
-            button.Content = grid;
-            WidgetRuleCards.Children.Add(button);
+            card.HeaderIcon = new FontIcon { Glyph = "\uE8B7" };
+            card.Click += WidgetRuleButton_Click;
+            WidgetRuleCards.Children.Add(card);
         }
 
         if (widgets.Count == 0)
@@ -138,7 +135,7 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
             {
                 Text = T("DesktopOrganization.Rules.Empty"),
                 Margin = new Thickness(8, 12, 8, 4),
-                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                Foreground = SecondaryTextBrush()
             });
         }
     }
@@ -166,6 +163,57 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
             : string.Empty;
         RuleStatusInfo.IsOpen = true;
         Refresh();
+    }
+
+    private void RefreshAutoIntervalOptions(SettingsService settingsService)
+    {
+        AutoIntervalComboBox.Items.Clear();
+        int selected = DesktopAutoOrganizationPolicy.NormalizeDelaySeconds(
+            settingsService.Settings.DesktopOrganization.DesktopAutoOrganizationDelaySeconds);
+        int selectedIndex = 0;
+        for (int index = 0;
+             index < DesktopAutoOrganizationPolicy.SupportedDelaySeconds.Length;
+             index++)
+        {
+            int seconds = DesktopAutoOrganizationPolicy.SupportedDelaySeconds[index];
+            AutoIntervalComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = GetAutoIntervalDisplayName(seconds),
+                Tag = seconds
+            });
+            if (seconds == selected)
+            {
+                selectedIndex = index;
+            }
+        }
+
+        AutoIntervalComboBox.SelectedIndex = selectedIndex;
+        AutoIntervalComboBox.IsEnabled = AutoOrganizationToggle.IsOn;
+    }
+
+    private static string GetAutoIntervalDisplayName(int seconds) => seconds switch
+    {
+        DesktopAutoOrganizationPolicy.DefaultDelaySeconds =>
+            T("DesktopOrganization.Auto.Interval.Realtime"),
+        60 => T("DesktopOrganization.Auto.Interval.Minute"),
+        12 * 60 * 60 => Format("DesktopOrganization.Auto.Interval.Hours", 12),
+        _ => Format("DesktopOrganization.Auto.Interval.Minutes", seconds / 60)
+    };
+
+    private async void AutoIntervalComboBox_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (_isRefreshing ||
+            AutoIntervalComboBox.SelectedItem is not ComboBoxItem { Tag: int seconds })
+        {
+            return;
+        }
+
+        var service = global::DeskBox.App.Current.SettingsService;
+        service.Settings.DesktopOrganization.DesktopAutoOrganizationDelaySeconds =
+            DesktopAutoOrganizationPolicy.NormalizeDelaySeconds(seconds);
+        await service.SaveAsync();
     }
 
     private void OrganizeNowButton_Click(object sender, RoutedEventArgs e)
@@ -308,7 +356,10 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
 
     private void WidgetRuleButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string widgetId })
+        // The row is a toolkit SettingsCard, whose Click event delivers the
+        // card itself as sender — matching on Button silently swallowed every
+        // invocation after the v3.1 row conversion.
+        if (sender is not CommunityToolkit.WinUI.Controls.SettingsCard { Tag: string widgetId })
         {
             return;
         }
@@ -346,6 +397,7 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
         RuleListPanel.Visibility = Visibility.Collapsed;
         RuleDetailPanel.Visibility = Visibility.Visible;
         RuleStatusInfo.IsOpen = false;
+        ResetHostScrollToTop();
         RuleDetailTitle.Text = _selectedWidget.Name;
         RuleDetailPath.Text = _selectedWidget.MappedFolderPath ?? string.Empty;
         _isRefreshing = true;
@@ -356,6 +408,25 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
         BuildExtensionChips();
         BuildExcludedExtensionChips();
         BuildRuleTokens();
+    }
+
+    /// <summary>
+    /// Drill-down within the section keeps the host page's scroller, which
+    /// route navigation normally resets; entering rule detail must do the
+    /// same so the header starts in view instead of at the list's offset.
+    /// </summary>
+    private void ResetHostScrollToTop()
+    {
+        DependencyObject ancestor = this;
+        while (ancestor is not null)
+        {
+            if (ancestor is ScrollViewer scroller)
+            {
+                scroller.ChangeView(null, 0, null, disableAnimation: true);
+                return;
+            }
+            ancestor = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(ancestor);
+        }
     }
 
     private void BuildSubtypeChecks()
@@ -538,7 +609,7 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
         RefreshStatusOnly();
     }
 
-    private static FrameworkElement CreateFileTypeOptionContent(
+    private FrameworkElement CreateFileTypeOptionContent(
         string title,
         IReadOnlyList<string> extensions,
         string? emptyDescription = null)
@@ -559,8 +630,7 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
                 ? string.Join("  ·  ", extensions)
                 : emptyDescription ?? string.Empty,
             FontSize = 12,
-            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[
-                "TextFillColorSecondaryBrush"],
+            Foreground = SecondaryTextBrush(),
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 520
         });
@@ -814,7 +884,7 @@ public sealed partial class DesktopOrganizationSettingsSection : UserControl
             var target = new TextBlock
             {
                 Text = widget?.Name ?? T("DesktopOrganization.Rules.KeepOnDesktop"),
-                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                Foreground = SecondaryTextBrush()
             };
             Grid.SetColumn(target, 1);
             grid.Children.Add(target);

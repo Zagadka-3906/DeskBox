@@ -18,8 +18,18 @@ public sealed class StoreAppUpdateService : IAppUpdateService
     public AppUpdateCheckResult? LastCheckResult { get; private set; }
     public DateTime? LastCheckTimeUtc { get; private set; }
     public event Action<AppUpdateCheckResult>? CheckCompleted;
+    // Store installs flow through the Store UI, so there is never a local
+    // installer this service downloaded; the two download events are
+    // interface requirements that can never fire here.
+#pragma warning disable CS0067
+    public event Action<AppUpdateDownloadProgress>? DownloadProgressChanged;
+    public event Action<AppUpdateDownloadResult>? DownloadCompleted;
+#pragma warning restore CS0067
     public string ManifestUrl => string.Empty;
     public AppUpdateDeliveryKind DeliveryKind => AppUpdateDeliveryKind.MicrosoftStore;
+    public string? LastDownloadedInstallerPath => null;
+    public bool IsDownloadInProgress => false;
+    public void ClearLastDownloadedInstaller() { }
 
     public Task<AppUpdateCheckResult> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
     {
@@ -59,18 +69,7 @@ public sealed class StoreAppUpdateService : IAppUpdateService
                 Channel = "store",
                 Version = GetDisplayVersion(_pendingUpdates),
                 DownloadUrl = StoreUpdateUri,
-                Summary =
-                {
-                    ["zh-CN"] = "Microsoft Store 中有可用更新，可由商店完成下载和安装。",
-                    ["zh-TW"] = "Microsoft Store 中有可用更新，可由商店完成下載與安裝。",
-                    ["en-US"] = "An update is available in Microsoft Store. The Store will handle download and installation.",
-                    ["hi-IN"] = "Microsoft Store में अपडेट उपलब्ध है। Microsoft Store इसे डाउनलोड और इंस्टॉल करेगा।",
-                    ["es-ES"] = "Hay una actualización disponible en Microsoft Store. Microsoft Store se encargará de descargarla e instalarla.",
-                    ["fr-FR"] = "Une mise à jour est disponible dans le Microsoft Store. Le Microsoft Store se chargera du téléchargement et de l’installation.",
-                    ["ar-SA"] = "يتوفر تحديث في Microsoft Store. سيتولى المتجر تنزيله وتثبيته.",
-                    ["bn-BD"] = "Microsoft Store-এ একটি আপডেট পাওয়া যাচ্ছে। Microsoft Store এটি ডাউনলোড ও ইনস্টল করবে।",
-                    ["ru-RU"] = "В Microsoft Store доступно обновление. Microsoft Store выполнит загрузку и установку."
-                }
+                Summary = []
             };
 
             return SetLastCheckResult(new AppUpdateCheckResult(
@@ -152,7 +151,10 @@ public sealed class StoreAppUpdateService : IAppUpdateService
         }
     }
 
-    public AppUpdateInstallResult StartInstallerHelper(string installerPath, bool silent = true)
+    public AppUpdateInstallResult StartInstallerHelper(
+        string installerPath,
+        bool silent = true,
+        string? appCultureName = null)
     {
         return AppUpdateInstallResult.Failed(StoreInstallFailedError);
     }

@@ -10,72 +10,163 @@ namespace DeskBox.Tests;
 
 public sealed class FileItemMultiDragTests
 {
-    [Theory]
-    [InlineData(
-        false,
-        true,
-        true,
-        DataPackageOperation.Copy | DataPackageOperation.Move |
-            DataPackageOperation.Link,
-        DataPackageOperation.Copy | DataPackageOperation.Move |
-            DataPackageOperation.Link)]
-    [InlineData(
-        false,
-        false,
-        true,
-        DataPackageOperation.Move,
-        DataPackageOperation.Copy | DataPackageOperation.Move |
-            DataPackageOperation.Link)]
-    [InlineData(
-        true,
-        false,
-        true,
-        DataPackageOperation.Move,
-        DataPackageOperation.Move | DataPackageOperation.Link)]
-    [InlineData(
-        true,
-        true,
-        true,
-        DataPackageOperation.Move,
-        DataPackageOperation.Move | DataPackageOperation.Link)]
-    [InlineData(
-        false,
-        true,
-        false,
-        DataPackageOperation.Move,
-        DataPackageOperation.Copy | DataPackageOperation.Move |
-            DataPackageOperation.Link)]
-    [InlineData(
-        true,
-        true,
-        false,
-        DataPackageOperation.Move,
-        DataPackageOperation.Move | DataPackageOperation.Link)]
-    public void SourceDragOperations_RequestFullMaskOnlyWhenPreferredEffectHidden(
-        bool isManagedShortcutDrag,
-        bool hidesPreferredDropEffect,
-        bool isWindows11OrLater,
-        DataPackageOperation expectedRequested,
-        DataPackageOperation expectedAllowed)
+    [Fact]
+    public void SourceDragOperations_AdvertiseCopyAndMoveWithoutPreference()
     {
-        // ListViewBase item drags expose RequestedOperation as the external
-        // allowed mask (None makes the drag undroppable). A lone Move makes
-        // every Copy-only drop target (Electron, WM_DROPFILES games) reject
-        // the drop, but a multi-bit request is only safe when its preferred
-        // drop effect is hidden from Explorer — and only on Win11, where the
-        // hiding layer actually reaches Explorer.
         Assert.Equal(
-            expectedRequested,
-            FileItemDragPackage.ResolveRequestedOperation(
-                isManagedShortcutDrag,
-                hidesPreferredDropEffect,
-                isWindows11OrLater));
-        Assert.Equal(
-            expectedAllowed,
-            FileItemDragPackage.ResolveSupportedOperations(
-                isManagedShortcutDrag));
+            DataPackageOperation.Copy | DataPackageOperation.Move,
+            FileItemDragPackage.SupportedOperations);
     }
 
+    [Theory]
+    [InlineData(SettingsService.ManagedDragOutActionFollowWindows, DataPackageOperation.None)]
+    [InlineData(SettingsService.ManagedDragOutActionMove, DataPackageOperation.Move)]
+    [InlineData(SettingsService.ManagedDragOutActionCopy, DataPackageOperation.Copy)]
+    [InlineData("Nonsense", DataPackageOperation.None)]
+    [InlineData(null, DataPackageOperation.None)]
+    public void ResolveDragOutPreferredOperation_MapsSettingToPreferredEffect(
+        string? action,
+        DataPackageOperation expected)
+    {
+        Assert.Equal(
+            expected,
+            FileItemDragPackage.ResolveDragOutPreferredOperation(action));
+    }
+
+    [Theory]
+    // Windows 11 keeps the full Copy|Move advertisement for every setting.
+    [InlineData(SettingsService.ManagedDragOutActionFollowWindows, true,
+        DataPackageOperation.Copy | DataPackageOperation.Move)]
+    [InlineData(SettingsService.ManagedDragOutActionMove, true,
+        DataPackageOperation.Copy | DataPackageOperation.Move)]
+    [InlineData(SettingsService.ManagedDragOutActionCopy, true,
+        DataPackageOperation.Copy | DataPackageOperation.Move)]
+    // Windows 10 collapses to a single effect: Explorer there prompts on
+    // every multi-effect drop. The silent single-bit shape cannot carry
+    // Windows' volume-dependent default, so an explicit setting performs
+    // what it says while the default (FollowWindows) and unknown values
+    // resolve to Copy — the safe side of the forced choice, because a
+    // Move-only offer makes IM-style receivers resolve Move and delete
+    // the original themselves (feedback 500).
+    [InlineData(SettingsService.ManagedDragOutActionMove, false,
+        DataPackageOperation.Move)]
+    [InlineData(SettingsService.ManagedDragOutActionCopy, false,
+        DataPackageOperation.Copy)]
+    [InlineData(SettingsService.ManagedDragOutActionFollowWindows, false,
+        DataPackageOperation.Copy)]
+    [InlineData("Nonsense", false, DataPackageOperation.Copy)]
+    [InlineData(null, false, DataPackageOperation.Copy)]
+    public void ResolveDragOutAllowedOperations_CollapsesToSingleEffectOnWin10(
+        string? action,
+        bool isWindows11OrLater,
+        DataPackageOperation expected)
+    {
+        Assert.Equal(
+            expected,
+            FileItemDragPackage.ResolveDragOutAllowedOperations(
+                action,
+                isWindows11OrLater));
+    }
+
+    [Fact]
+    public void ResolveDragOutAllowedOperations_Win10DefaultNeverOffersMove()
+    {
+        // Feedback 500: a Move-only advertisement made the WeChat send box
+        // resolve the drop to Move and delete the original into the Recycle
+        // Bin itself. The Win10 default (FollowWindows) and unknown values
+        // must therefore advertise Copy-only: receivers can resolve at most
+        // Copy, so the original can never be removed by the target.
+        foreach (string? action in new[]
+                 {
+                     SettingsService.ManagedDragOutActionFollowWindows,
+                     "Nonsense",
+                     null,
+                 })
+        {
+            DataPackageOperation allowed =
+                FileItemDragPackage.ResolveDragOutAllowedOperations(
+                    action,
+                    isWindows11OrLater: false);
+
+            Assert.Equal(DataPackageOperation.Copy, allowed);
+            Assert.False(allowed.HasFlag(DataPackageOperation.Move));
+        }
+    }
+
+    [Fact]
+    public void Win10DefaultDropOutCopyResolutionNeverEntersFullRemovalWatch()
+    {
+        // The defense chain for feedback 500 on Win10: the default tier
+        // advertises Copy-only, a compliant receiver resolves Copy, and a
+        // Copy completion only ever runs the brief existence probe — never
+        // the full removal watch — so originals stay and no row is pruned.
+        DataPackageOperation allowed =
+            FileItemDragPackage.ResolveDragOutAllowedOperations(
+                SettingsService.ManagedDragOutActionFollowWindows,
+                isWindows11OrLater: false);
+        DataPackageOperation resolved = allowed & DataPackageOperation.Copy;
+
+        Assert.Equal(
+            FileSurfaceContent.ExternalDragObservation.Brief,
+            FileSurfaceContent.ResolveExternalDragObservation(
+                resolved,
+                hasStorageItems: true,
+                handledAsStackMembership: false,
+                fromStackPopover: false));
+    }
+
+    [Fact]
+    public void ExternalDragOutReconcilePath_DeletesNothingItself()
+    {
+        // DeskBox never deletes a drag-out source: the completion path may
+        // only reconcile rows for files the RECEIVER already moved
+        // (feedback 500's deletion was performed by WeChat, which is why
+        // the file landed in the Recycle Bin rather than vanishing). Pin
+        // that the observation method reconciles solely through row
+        // removal and contains no Shell/File delete calls of its own.
+        string root = FindRepositoryRoot();
+        string source = File.ReadAllText(Path.Combine(
+            root,
+            "src/DeskBox/Controls/WidgetContents/FileSurfaceContent.xaml.cs"));
+
+        int methodStart = source.IndexOf(
+            "private async Task ObserveExternalDragOutAsync(",
+            StringComparison.Ordinal);
+        Assert.True(methodStart >= 0, "ObserveExternalDragOutAsync not found.");
+        int methodEnd = source.IndexOf(
+            "private void SuppressDesktopDragOutArrivals(",
+            StringComparison.Ordinal);
+        Assert.True(
+            methodEnd > methodStart,
+            "Method boundary not found.");
+        string method = source[methodStart..methodEnd];
+
+        Assert.Contains("HandleItemsMovedOutAsync", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("DeleteEntriesWithShell", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("File.Delete", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("Directory.Delete", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("RecycleBin", method, StringComparison.Ordinal);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        DirectoryInfo? current = new(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(
+                    current.FullName,
+                    "src",
+                    "DeskBox",
+                    "DeskBox.csproj")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new InvalidOperationException("Repository root not found.");
+    }
     [Theory]
     [InlineData(true, true, true, false, true)]
     [InlineData(false, true, true, false, false)]
@@ -126,49 +217,40 @@ public sealed class FileItemMultiDragTests
 
     [Theory]
     [InlineData(
-        true,
         DataPackageOperation.Copy | DataPackageOperation.Move |
             DataPackageOperation.Link,
         DataPackageOperation.Move,
         DataPackageOperation.Link)]
     [InlineData(
-        true,
         DataPackageOperation.Link,
         DataPackageOperation.Move,
         DataPackageOperation.Link)]
     [InlineData(
-        false,
         DataPackageOperation.Copy | DataPackageOperation.Move |
             DataPackageOperation.Link,
         DataPackageOperation.Link,
         DataPackageOperation.Link)]
     [InlineData(
-        true,
-        DataPackageOperation.None,
-        DataPackageOperation.Move,
-        DataPackageOperation.Move)]
-    [InlineData(
-        true,
-        DataPackageOperation.Move,
-        DataPackageOperation.Move,
-        DataPackageOperation.Move)]
-    [InlineData(
-        false,
-        DataPackageOperation.Move,
-        DataPackageOperation.Move,
-        DataPackageOperation.None)]
-    [InlineData(
-        true,
         DataPackageOperation.Copy | DataPackageOperation.Move,
         DataPackageOperation.Move,
         DataPackageOperation.Copy)]
     [InlineData(
-        true,
+        DataPackageOperation.Copy | DataPackageOperation.Move,
+        DataPackageOperation.None,
+        DataPackageOperation.Copy)]
+    [InlineData(
+        DataPackageOperation.Move,
+        DataPackageOperation.None,
+        DataPackageOperation.Move)]
+    [InlineData(
+        DataPackageOperation.None,
+        DataPackageOperation.Move,
+        DataPackageOperation.Move)]
+    [InlineData(
         DataPackageOperation.None,
         DataPackageOperation.None,
         DataPackageOperation.None)]
-    public void InternalArrangementFeedback_AcceptsAdvertisedDeskBoxMove(
-        bool isDeskBoxFileDrag,
+    public void InternalArrangementFeedback_PrefersLinkThenCopyThenMove(
         DataPackageOperation allowedOperations,
         DataPackageOperation requestedOperation,
         DataPackageOperation expected)
@@ -176,9 +258,98 @@ public sealed class FileItemMultiDragTests
         Assert.Equal(
             expected,
             FileSurfaceContent.ResolveInternalArrangementFeedbackOperation(
-                isDeskBoxFileDrag,
                 allowedOperations,
                 requestedOperation));
+    }
+
+    [Theory]
+    [InlineData(
+        DataPackageOperation.Copy | DataPackageOperation.Move,
+        DataPackageOperation.Move)]
+    [InlineData(DataPackageOperation.Move, DataPackageOperation.Move)]
+    [InlineData(DataPackageOperation.Copy, DataPackageOperation.Copy)]
+    [InlineData(DataPackageOperation.None, DataPackageOperation.None)]
+    public void InternalMetadataOperation_AnswersOnlyAnOfferedEffect(
+        DataPackageOperation allowedOperations,
+        DataPackageOperation expected)
+    {
+        Assert.Equal(
+            expected,
+            DeskBoxDragData.ResolveInternalMetadataOperation(
+                allowedOperations));
+    }
+
+    [Fact]
+    public void FileAssociationOperation_FallsBackToMoveForSingleEffectInternalDrags()
+    {
+        var package = new DataPackage();
+        package.Properties[DeskBoxDragData.InternalFileDragTokenProperty] =
+            DeskBoxDragData.InternalFileDragToken;
+        package.Properties[DeskBoxDragData.SourcePathsProperty] =
+            new[] { @"E:\DeskBox\one.txt" };
+        DataPackageView view = package.GetView();
+
+        // Windows 10 advertises a single Move: todo/quick-capture attach
+        // targets must still route the drop.
+        Assert.Equal(
+            DataPackageOperation.Move,
+            DeskBoxDragData.GetFileAssociationOperation(
+                view,
+                DataPackageOperation.Move));
+        Assert.Equal(
+            DataPackageOperation.Copy,
+            DeskBoxDragData.GetFileAssociationOperation(
+                view,
+                DataPackageOperation.Copy | DataPackageOperation.Move));
+        Assert.Equal(
+            DataPackageOperation.Copy,
+            DeskBoxDragData.GetFileAssociationOperation(view));
+        // External sources keep their negotiated answer.
+        Assert.Equal(
+            DataPackageOperation.Copy,
+            DeskBoxDragData.GetFileAssociationOperation(
+                new DataPackage().GetView(),
+                DataPackageOperation.Move));
+    }
+
+    [Fact]
+    public void FileDragFeedbackOperation_FallsBackToMoveWhenCopyIsNotAdvertised()
+    {
+        var package = new DataPackage();
+        package.Properties[DeskBoxDragData.InternalFileDragTokenProperty] =
+            DeskBoxDragData.InternalFileDragToken;
+        package.Properties[DeskBoxDragData.SourcePathsProperty] =
+            new[] { @"E:\DeskBox\one.txt" };
+        DataPackageView view = package.GetView();
+
+        // Internal drag, single-Move advertisement (Windows 10): feedback
+        // must answer with the one offered effect or the drop never routes.
+        Assert.Equal(
+            DataPackageOperation.Move,
+            DeskBoxDragData.ResolveFileDragFeedbackOperation(
+                view,
+                DataPackageOperation.Move,
+                DataPackageOperation.Move));
+        // The full advertisement and the default argument keep answering
+        // Copy so completion never authorizes shell source cleanup.
+        Assert.Equal(
+            DataPackageOperation.Copy,
+            DeskBoxDragData.ResolveFileDragFeedbackOperation(
+                view,
+                DataPackageOperation.Move));
+        Assert.Equal(
+            DataPackageOperation.Move,
+            DeskBoxDragData.ResolveFileDragFeedbackOperation(
+                view,
+                DataPackageOperation.Copy,
+                DataPackageOperation.Move));
+        // Non-internal drags pass their negotiated operation through.
+        Assert.Equal(
+            DataPackageOperation.Move,
+            DeskBoxDragData.ResolveFileDragFeedbackOperation(
+                new DataPackage().GetView(),
+                DataPackageOperation.Move,
+                DataPackageOperation.Move));
     }
 
     [Theory]
@@ -244,25 +415,124 @@ public sealed class FileItemMultiDragTests
     }
 
     [Theory]
-    [InlineData(DataPackageOperation.Move, true, false, true, true)]
-    [InlineData(DataPackageOperation.None, true, false, true, false)]
-    [InlineData(DataPackageOperation.None, true, false, false, true)]
-    [InlineData(DataPackageOperation.None, false, false, false, false)]
-    [InlineData(DataPackageOperation.Move, true, true, true, false)]
-    public void ShouldObserveExternalDragOut_DistinguishesPopoverCancellation(
+    [InlineData(DataPackageOperation.Move, true, false, true,
+        FileSurfaceContent.ExternalDragObservation.Full)]
+    [InlineData(DataPackageOperation.Move, true, false, false,
+        FileSurfaceContent.ExternalDragObservation.Full)]
+    [InlineData(DataPackageOperation.None, true, false, true,
+        FileSurfaceContent.ExternalDragObservation.Brief)]
+    [InlineData(DataPackageOperation.None, true, false, false,
+        FileSurfaceContent.ExternalDragObservation.Full)]
+    [InlineData(DataPackageOperation.Copy, true, false, true,
+        FileSurfaceContent.ExternalDragObservation.Brief)]
+    [InlineData(DataPackageOperation.Copy, true, false, false,
+        FileSurfaceContent.ExternalDragObservation.Brief)]
+    [InlineData(DataPackageOperation.None, false, false, false,
+        FileSurfaceContent.ExternalDragObservation.None)]
+    [InlineData(DataPackageOperation.Move, false, false, false,
+        FileSurfaceContent.ExternalDragObservation.None)]
+    [InlineData(DataPackageOperation.Link, true, false, false,
+        FileSurfaceContent.ExternalDragObservation.None)]
+    [InlineData(DataPackageOperation.Move, true, true, false,
+        FileSurfaceContent.ExternalDragObservation.None)]
+    public void ResolveExternalDragObservation_DistinguishesPopoverCancellation(
         DataPackageOperation dropResult,
         bool hasStorageItems,
         bool handledAsStackMembership,
         bool fromStackPopover,
-        bool expected)
+        FileSurfaceContent.ExternalDragObservation expected)
     {
         Assert.Equal(
             expected,
-            FileSurfaceContent.ShouldObserveExternalDragOut(
+            FileSurfaceContent.ResolveExternalDragObservation(
                 dropResult,
                 hasStorageItems,
                 handledAsStackMembership,
                 fromStackPopover));
+    }
+
+    [Theory]
+    [InlineData(
+        DataPackageOperation.Copy,
+        DataPackageOperation.Copy | DataPackageOperation.Move,
+        "Widget.DragOutTip.AfterCopy")]
+    [InlineData(
+        DataPackageOperation.Move,
+        DataPackageOperation.Copy | DataPackageOperation.Move,
+        "Widget.DragOutTip.AfterMove")]
+    // Windows 10 collapses the advertisement to a single effect: nothing
+    // can be flipped, so the receipt stays a plain statement.
+    [InlineData(
+        DataPackageOperation.Copy,
+        DataPackageOperation.Copy,
+        "Widget.DragOutTip.AfterCopy.NoModifiers")]
+    [InlineData(
+        DataPackageOperation.Copy,
+        DataPackageOperation.Move,
+        "Widget.DragOutTip.AfterCopy.NoModifiers")]
+    [InlineData(
+        DataPackageOperation.Move,
+        DataPackageOperation.Copy,
+        "Widget.DragOutTip.AfterMove.NoModifiers")]
+    [InlineData(
+        DataPackageOperation.Move,
+        DataPackageOperation.Move,
+        "Widget.DragOutTip.AfterMove.NoModifiers")]
+    // None is an optimized move or a cancel; Link is not a drag-out outcome.
+    [InlineData(
+        DataPackageOperation.Link,
+        DataPackageOperation.Copy | DataPackageOperation.Move,
+        null)]
+    [InlineData(
+        DataPackageOperation.None,
+        DataPackageOperation.Copy | DataPackageOperation.Move,
+        null)]
+    [InlineData(DataPackageOperation.Link, DataPackageOperation.Copy, null)]
+    [InlineData(DataPackageOperation.None, DataPackageOperation.Move, null)]
+    // An extra advertised bit (Link) does not loosen the Copy+Move rule.
+    [InlineData(
+        DataPackageOperation.Copy,
+        DataPackageOperation.Copy | DataPackageOperation.Move |
+            DataPackageOperation.Link,
+        "Widget.DragOutTip.AfterCopy")]
+    public void GetDragOutResultHintKey_TeachesModifiersOnlyWhenCopyAndMoveAdvertised(
+        DataPackageOperation dropResult,
+        DataPackageOperation allowedOperations,
+        string? expected)
+    {
+        Assert.Equal(
+            expected,
+            FileSurfaceContent.GetDragOutResultHintKey(
+                dropResult,
+                allowedOperations));
+    }
+
+    [Theory]
+    [InlineData(SettingsService.ManagedDragOutActionFollowWindows)]
+    [InlineData(SettingsService.ManagedDragOutActionMove)]
+    [InlineData(SettingsService.ManagedDragOutActionCopy)]
+    [InlineData("Nonsense")]
+    [InlineData(null)]
+    public void GetDragOutResultHintKey_Win10AdvertisementNeverTeachesModifiers(
+        string? action)
+    {
+        // Windows 10 resolves every setting to a single-effect
+        // advertisement, so the receipt there must never claim a modifier
+        // could have flipped the result.
+        DataPackageOperation allowed =
+            FileItemDragPackage.ResolveDragOutAllowedOperations(action, false);
+
+        string? copyKey = FileSurfaceContent.GetDragOutResultHintKey(
+            DataPackageOperation.Copy,
+            allowed);
+        string? moveKey = FileSurfaceContent.GetDragOutResultHintKey(
+            DataPackageOperation.Move,
+            allowed);
+
+        Assert.True(copyKey is null ||
+            copyKey.EndsWith(".NoModifiers", StringComparison.Ordinal));
+        Assert.True(moveKey is null ||
+            moveKey.EndsWith(".NoModifiers", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -423,14 +693,7 @@ public sealed class FileItemMultiDragTests
             Assert.True(prepared);
             Assert.Equal([firstPath, secondPath], result.SourcePaths);
             Assert.True(result.UsesNativeShellDataObject);
-            // The OS-gated mapping itself is pinned by the theory above with
-            // an explicit gate value; here it only matters that TryPrepare
-            // wires the resolver's answer into the package untouched.
-            Assert.Equal(
-                FileItemDragPackage.ResolveRequestedOperation(
-                    isManagedShortcutDrag: false,
-                    hidesPreferredDropEffect: true),
-                dataPackage.GetView().RequestedOperation);
+            Assert.Equal(DataPackageOperation.None, dataPackage.GetView().RequestedOperation);
             // Chromium maps CF_UNICODETEXT to text/plain + text/uri-list and
             // Electron drop zones then stop treating the drag as files.
             Assert.False(dataPackage.GetView().Contains(StandardDataFormats.Text));
@@ -446,7 +709,7 @@ public sealed class FileItemMultiDragTests
     }
 
     [Fact]
-    public void TryPrepare_ManagedShortcutDragKeepsMoveAsRequestedOperation()
+    public void TryPrepare_ShortcutDragRequestsNoPreferredOperation()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -466,12 +729,11 @@ public sealed class FileItemMultiDragTests
                 "source-widget",
                 _ => Array.Empty<IStorageItem>(),
                 paths => paths.Count.ToString(),
-                out _,
-                isManagedShortcutDrag: true);
+                out _);
 
             Assert.True(prepared);
             Assert.Equal(
-                DataPackageOperation.Move,
+                DataPackageOperation.None,
                 dataPackage.GetView().RequestedOperation);
         }
         finally
@@ -494,6 +756,144 @@ public sealed class FileItemMultiDragTests
             FileSurfaceContent.ShouldShowEmptyState(
                 isLoading,
                 sourceItemCount));
+    }
+
+    [Fact]
+    public void TryMoveDisplayUnitOverrides_MovesSelectionAsOneStableBlock()
+    {
+        List<string> order =
+        [
+            "Item:E:\\DESKBOX\\FIRST.TXT",
+            "Item:E:\\DESKBOX\\SECOND.TXT",
+            "Item:E:\\DESKBOX\\THIRD.TXT",
+            "Item:E:\\DESKBOX\\FOURTH.TXT"
+        ];
+
+        bool moved = WidgetViewModel.TryMoveDisplayUnitOverrides(
+            order,
+            [
+                "Item:E:\\DESKBOX\\FIRST.TXT",
+                "Item:E:\\DESKBOX\\THIRD.TXT"
+            ],
+            targetPosition: 2);
+
+        Assert.True(moved);
+        Assert.Equal(
+        [
+            "Item:E:\\DESKBOX\\SECOND.TXT",
+            "Item:E:\\DESKBOX\\FOURTH.TXT",
+            "Item:E:\\DESKBOX\\FIRST.TXT",
+            "Item:E:\\DESKBOX\\THIRD.TXT"
+        ], order);
+    }
+
+    [Fact]
+    public void TryMoveDisplayUnitOverrides_DoesNotMutateEquivalentDrop()
+    {
+        List<string> order =
+        [
+            "Item:E:\\DESKBOX\\FIRST.TXT",
+            "Item:E:\\DESKBOX\\SECOND.TXT",
+            "Item:E:\\DESKBOX\\THIRD.TXT"
+        ];
+
+        // second+third already sit behind exactly one non-moving unit.
+        bool moved = WidgetViewModel.TryMoveDisplayUnitOverrides(
+            order,
+            [
+                "Item:E:\\DESKBOX\\SECOND.TXT",
+                "Item:E:\\DESKBOX\\THIRD.TXT"
+            ],
+            targetPosition: 1);
+
+        Assert.False(moved);
+        Assert.Equal(
+        [
+            "Item:E:\\DESKBOX\\FIRST.TXT",
+            "Item:E:\\DESKBOX\\SECOND.TXT",
+            "Item:E:\\DESKBOX\\THIRD.TXT"
+        ], order);
+    }
+
+    [Fact]
+    public void TryMoveDisplayUnitOverrides_IgnoresKeysMissingFromOrder()
+    {
+        List<string> order =
+        [
+            "Item:E:\\DESKBOX\\FIRST.TXT",
+            "Item:E:\\DESKBOX\\SECOND.TXT"
+        ];
+
+        bool moved = WidgetViewModel.TryMoveDisplayUnitOverrides(
+            order,
+            ["Item:E:\\DESKBOX\\ABSENT.TXT"],
+            targetPosition: 0);
+
+        Assert.False(moved);
+        Assert.Equal(
+        [
+            "Item:E:\\DESKBOX\\FIRST.TXT",
+            "Item:E:\\DESKBOX\\SECOND.TXT"
+        ], order);
+    }
+
+    [Fact]
+    public void TryComputeItemBlockReorder_CompensatesMovingItemsBeforeTarget()
+    {
+        WidgetItem first = CreateItem("first.txt");
+        WidgetItem second = CreateItem("second.txt");
+        WidgetItem third = CreateItem("third.txt");
+        WidgetItem fourth = CreateItem("fourth.txt");
+        WidgetItem fifth = CreateItem("fifth.txt");
+        List<WidgetItem> items = [first, second, third, fourth, fifth];
+
+        // Dragging first+third onto the slot before fifth: two moving items
+        // sit ahead of the drop target, so the block lands at index 2.
+        bool moved = WidgetViewModel.TryComputeItemBlockReorder(
+            items,
+            [first, third],
+            targetIndex: 4,
+            out int insertionIndex);
+
+        Assert.True(moved);
+        Assert.Equal(2, insertionIndex);
+    }
+
+    [Fact]
+    public void TryComputeItemBlockReorder_ClampsToTrailingRange()
+    {
+        WidgetItem first = CreateItem("first.txt");
+        WidgetItem second = CreateItem("second.txt");
+        WidgetItem third = CreateItem("third.txt");
+        WidgetItem fourth = CreateItem("fourth.txt");
+        List<WidgetItem> items = [first, second, third, fourth];
+
+        bool moved = WidgetViewModel.TryComputeItemBlockReorder(
+            items,
+            [first, fourth],
+            targetIndex: 4,
+            out int insertionIndex);
+
+        Assert.True(moved);
+        Assert.Equal(2, insertionIndex);
+    }
+
+    [Fact]
+    public void TryComputeItemBlockReorder_ReturnsFalseForEquivalentDrop()
+    {
+        WidgetItem first = CreateItem("first.txt");
+        WidgetItem second = CreateItem("second.txt");
+        WidgetItem third = CreateItem("third.txt");
+        List<WidgetItem> items = [first, second, third];
+
+        bool moved = WidgetViewModel.TryComputeItemBlockReorder(
+            items,
+            [first, second],
+            targetIndex: 2,
+            out int insertionIndex);
+
+        Assert.False(moved);
+        Assert.Equal(0, insertionIndex);
     }
 
     private static WidgetItem CreateItem(string path) => new()

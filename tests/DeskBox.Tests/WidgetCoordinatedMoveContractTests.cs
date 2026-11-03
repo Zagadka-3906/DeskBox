@@ -9,8 +9,6 @@ public sealed class WidgetCoordinatedMoveContractTests
         string manager = Read("src/DeskBox/Services/WidgetManager.CoordinatedMove.cs");
         string contentInteraction = Read(
             "src/DeskBox/Views/ContentWidgetWindow.WindowInteraction.cs");
-        string quickCaptureInteraction = Read(
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.WindowInteraction.cs");
 
         Assert.Contains("VirtualKey.Control", interaction, StringComparison.Ordinal);
         Assert.Contains("TryBeginCoordinatedMove(HWnd)", interaction, StringComparison.Ordinal);
@@ -33,10 +31,6 @@ public sealed class WidgetCoordinatedMoveContractTests
             "!Win32Helper.IsKeyPressed(Windows.System.VirtualKey.Control)",
             contentInteraction,
             StringComparison.Ordinal);
-        Assert.Contains(
-            "!Win32Helper.IsKeyPressed(Windows.System.VirtualKey.Control)",
-            quickCaptureInteraction,
-            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -56,7 +50,7 @@ public sealed class WidgetCoordinatedMoveContractTests
 
         Assert.Contains("<Slider", card, StringComparison.Ordinal);
         Assert.Contains("StepFrequency=\"1\"", card, StringComparison.Ordinal);
-        Assert.Contains("WidgetSnapSpacingText", card, StringComparison.Ordinal);
+        Assert.Contains("SnapSpacingText", card, StringComparison.Ordinal);
         Assert.DoesNotContain("<NumberBox", card, StringComparison.Ordinal);
     }
 

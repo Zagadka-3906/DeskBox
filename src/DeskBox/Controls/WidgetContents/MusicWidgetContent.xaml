@@ -31,7 +31,6 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid
-                            x:Name="IconButtonRoot"
                             Background="Transparent"
                             CornerRadius="{TemplateBinding CornerRadius}">
                             <VisualStateManager.VisualStateGroups>
@@ -106,95 +105,6 @@
             <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
         </Style>
 
-        <Style x:Key="MusicPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
-            <Setter Property="Width" Value="42" />
-            <Setter Property="Height" Value="42" />
-            <Setter Property="MinWidth" Value="42" />
-            <Setter Property="MinHeight" Value="42" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Background" Value="{ThemeResource SystemControlHighlightAccentBrush}" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="CornerRadius" Value="21" />
-            <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-            <Setter Property="UseSystemFocusVisuals" Value="True" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Grid
-                            x:Name="PrimaryButtonRoot"
-                            Background="Transparent"
-                            CornerRadius="{TemplateBinding CornerRadius}">
-                            <VisualStateManager.VisualStateGroups>
-                                <VisualStateGroup x:Name="CommonStates">
-                                    <VisualStateGroup.Transitions>
-                                        <VisualTransition GeneratedDuration="0:0:0.083" />
-                                    </VisualStateGroup.Transitions>
-                                    <VisualState x:Name="Normal">
-                                        <VisualState.Setters>
-                                            <Setter Target="PrimarySurface.Opacity" Value="1" />
-                                            <Setter Target="PrimaryHoverOverlay.Opacity" Value="0" />
-                                            <Setter Target="PrimaryPressedOverlay.Opacity" Value="0" />
-                                            <Setter Target="PrimaryContentPresenter.Opacity" Value="1" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="PointerOver">
-                                        <VisualState.Setters>
-                                            <Setter Target="PrimarySurface.Opacity" Value="1" />
-                                            <Setter Target="PrimaryHoverOverlay.Opacity" Value="0.10" />
-                                            <Setter Target="PrimaryPressedOverlay.Opacity" Value="0" />
-                                            <Setter Target="PrimaryContentPresenter.Opacity" Value="1" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Pressed">
-                                        <VisualState.Setters>
-                                            <Setter Target="PrimarySurface.Opacity" Value="0.96" />
-                                            <Setter Target="PrimaryHoverOverlay.Opacity" Value="0" />
-                                            <Setter Target="PrimaryPressedOverlay.Opacity" Value="0.16" />
-                                            <Setter Target="PrimaryContentPresenter.Opacity" Value="0.86" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Disabled">
-                                        <VisualState.Setters>
-                                            <Setter Target="PrimarySurface.Opacity" Value="0.42" />
-                                            <Setter Target="PrimaryHoverOverlay.Opacity" Value="0" />
-                                            <Setter Target="PrimaryPressedOverlay.Opacity" Value="0" />
-                                            <Setter Target="PrimaryContentPresenter.Opacity" Value="0.40" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                </VisualStateGroup>
-                            </VisualStateManager.VisualStateGroups>
-                            <Border
-                                x:Name="PrimarySurface"
-                                Background="{TemplateBinding Background}"
-                                BorderThickness="0"
-                                CornerRadius="{TemplateBinding CornerRadius}"
-                                IsHitTestVisible="False" />
-                            <Border
-                                x:Name="PrimaryHoverOverlay"
-                                Background="#FFFFFFFF"
-                                CornerRadius="{TemplateBinding CornerRadius}"
-                                IsHitTestVisible="False"
-                                Opacity="0" />
-                            <Border
-                                x:Name="PrimaryPressedOverlay"
-                                Background="#66000000"
-                                CornerRadius="{TemplateBinding CornerRadius}"
-                                IsHitTestVisible="False"
-                                Opacity="0" />
-                            <ContentPresenter
-                                x:Name="PrimaryContentPresenter"
-                                Margin="{TemplateBinding Padding}"
-                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                Content="{TemplateBinding Content}"
-                                ContentTemplate="{TemplateBinding ContentTemplate}" />
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
     </UserControl.Resources>
 
     <Grid
@@ -272,7 +182,7 @@
                         VerticalAlignment="Center"
                         Orientation="Horizontal"
                         Spacing="0">
-                        <Button
+                        <Button AutomationProperties.Name="{Binding PlayPauseTooltip}"
                             x:Name="MinimalPlayPauseButton"
                             Width="28"
                             Height="28"
@@ -294,7 +204,7 @@
                                     Visibility="{Binding PauseIconVisibility}" />
                             </Grid>
                         </Button>
-                        <Button
+                        <Button AutomationProperties.Name="{Binding NextTooltip}"
                             x:Name="MinimalNextButton"
                             Width="28"
                             Height="28"
@@ -571,10 +481,12 @@
                     Grid.Row="2"
                     FontSize="{Binding CaptionTextSize}"
                     Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                    MaxLines="1"
+                    MaxLines="2"
                     MinWidth="0"
                     Text="{Binding StatusText}"
-                    TextTrimming="CharacterEllipsis" />
+                    TextTrimming="CharacterEllipsis"
+                    TextWrapping="Wrap"
+                    ToolTipService.ToolTip="{Binding StatusText}" />
             </Grid>
 
             <Grid
@@ -582,7 +494,8 @@
                 Grid.Row="1"
                 Grid.ColumnSpan="2"
                 Margin="0,3,0,0"
-                ColumnSpacing="8">
+                ColumnSpacing="8"
+                Visibility="{Binding TimelineRowVisibility}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition x:Name="PositionColumn" Width="34" />
                     <ColumnDefinition Width="*" MinWidth="0" />
@@ -653,7 +566,7 @@
                 Orientation="Horizontal"
                 Spacing="12"
                 VerticalAlignment="Bottom">
-                <Button
+                <Button AutomationProperties.Name="{Binding PlaybackModeTooltip}"
                     x:Name="PlaybackModeButton"
                     Click="PlaybackModeButton_Click"
                     IsEnabled="{Binding CanChangePlaybackMode}"
@@ -665,7 +578,7 @@
                         Style="{StaticResource MusicSecondaryFontIconStyle}" />
                 </Button>
 
-                <Button
+                <Button AutomationProperties.Name="{Binding PreviousTooltip}"
                     x:Name="PreviousButton"
                     Click="PreviousButton_Click"
                     IsEnabled="{Binding CanGoPrevious}"
@@ -676,7 +589,7 @@
                         Kind="Previous" />
                 </Button>
 
-                <Button
+                <Button AutomationProperties.Name="{Binding PlayPauseTooltip}"
                     x:Name="PlayPauseButton"
                     Click="PlayPauseButton_Click"
                     IsEnabled="{Binding CanPlayPause}"
@@ -694,7 +607,7 @@
                     </Grid>
                 </Button>
 
-                <Button
+                <Button AutomationProperties.Name="{Binding NextTooltip}"
                     x:Name="NextButton"
                     Click="NextButton_Click"
                     IsEnabled="{Binding CanGoNext}"
@@ -705,7 +618,7 @@
                         Kind="Next" />
                 </Button>
 
-                <Button
+                <Button AutomationProperties.Name="{Binding VolumeTooltip}"
                     x:Name="VolumeButton"
                     Click="VolumeButton_Click"
                     Style="{StaticResource MusicIconButtonStyle}"
@@ -928,7 +841,8 @@
                 Margin="0,2,0,0"
                 HorizontalAlignment="Stretch"
                 MaxWidth="280"
-                ColumnSpacing="6">
+                ColumnSpacing="6"
+                Visibility="{Binding TimelineRowVisibility}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
@@ -975,7 +889,7 @@
                 HorizontalAlignment="Center"
                 Orientation="Horizontal"
                 Spacing="10">
-                <Button
+                <Button AutomationProperties.Name="{Binding PlaybackModeTooltip}"
                     x:Name="RecordPlaybackModeButton"
                     Click="PlaybackModeButton_Click"
                     IsEnabled="{Binding CanChangePlaybackMode}"
@@ -986,7 +900,7 @@
                         Glyph="{Binding PlaybackModeGlyph}"
                         Style="{StaticResource MusicSecondaryFontIconStyle}" />
                 </Button>
-                <Button
+                <Button AutomationProperties.Name="{Binding PreviousTooltip}"
                     x:Name="RecordPreviousButton"
                     Click="PreviousButton_Click"
                     IsEnabled="{Binding CanGoPrevious}"
@@ -996,7 +910,7 @@
                         Foreground="{Binding Foreground, ElementName=RecordPreviousButton}"
                         Kind="Previous" />
                 </Button>
-                <Button
+                <Button AutomationProperties.Name="{Binding PlayPauseTooltip}"
                     x:Name="RecordPlayPauseButton"
                     Click="PlayPauseButton_Click"
                     IsEnabled="{Binding CanPlayPause}"
@@ -1013,7 +927,7 @@
                             Visibility="{Binding PauseIconVisibility}" />
                     </Grid>
                 </Button>
-                <Button
+                <Button AutomationProperties.Name="{Binding NextTooltip}"
                     x:Name="RecordNextButton"
                     Click="NextButton_Click"
                     IsEnabled="{Binding CanGoNext}"
@@ -1023,7 +937,7 @@
                         Foreground="{Binding Foreground, ElementName=RecordNextButton}"
                         Kind="Next" />
                 </Button>
-                <Button
+                <Button AutomationProperties.Name="{Binding VolumeTooltip}"
                     x:Name="RecordVolumeButton"
                     Click="VolumeButton_Click"
                     Style="{StaticResource MusicIconButtonStyle}"
@@ -1140,7 +1054,11 @@
                         </Button>
                     </Grid>
                 </StackPanel>
-                <Grid Grid.Row="1" Margin="0,2,0,0" ColumnSpacing="6">
+                <Grid
+                    Grid.Row="1"
+                    Margin="0,2,0,0"
+                    ColumnSpacing="6"
+                    Visibility="{Binding TimelineRowVisibility}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -1185,7 +1103,7 @@
                     Margin="0,2,0,0"
                     Orientation="Horizontal"
                     Spacing="8">
-                    <Button
+                    <Button AutomationProperties.Name="{Binding PlaybackModeTooltip}"
                         x:Name="RecordHorizontalPlaybackModeButton"
                         Click="PlaybackModeButton_Click"
                         IsEnabled="{Binding CanChangePlaybackMode}"
@@ -1196,7 +1114,7 @@
                             Glyph="{Binding PlaybackModeGlyph}"
                             Style="{StaticResource MusicSecondaryFontIconStyle}" />
                     </Button>
-                    <Button
+                    <Button AutomationProperties.Name="{Binding PreviousTooltip}"
                         x:Name="RecordHorizontalPreviousButton"
                         Click="PreviousButton_Click"
                         IsEnabled="{Binding CanGoPrevious}"
@@ -1206,7 +1124,7 @@
                             Foreground="{Binding Foreground, ElementName=RecordHorizontalPreviousButton}"
                             Kind="Previous" />
                     </Button>
-                    <Button
+                    <Button AutomationProperties.Name="{Binding PlayPauseTooltip}"
                         x:Name="RecordHorizontalPlayPauseButton"
                         Click="PlayPauseButton_Click"
                         IsEnabled="{Binding CanPlayPause}"
@@ -1223,7 +1141,7 @@
                                 Visibility="{Binding PauseIconVisibility}" />
                         </Grid>
                     </Button>
-                    <Button
+                    <Button AutomationProperties.Name="{Binding NextTooltip}"
                         x:Name="RecordHorizontalNextButton"
                         Click="NextButton_Click"
                         IsEnabled="{Binding CanGoNext}"
@@ -1233,7 +1151,7 @@
                             Foreground="{Binding Foreground, ElementName=RecordHorizontalNextButton}"
                             Kind="Next" />
                     </Button>
-                    <Button
+                    <Button AutomationProperties.Name="{Binding VolumeTooltip}"
                         x:Name="RecordHorizontalVolumeButton"
                         Click="VolumeButton_Click"
                         Style="{StaticResource MusicIconButtonStyle}"
@@ -1277,6 +1195,7 @@
 
                 <Slider
                     x:Name="InlineSystemVolumeSlider"
+                    AutomationProperties.Name="{Binding SystemVolumeLabel}"
                     Grid.Column="1"
                     Height="28"
                     Margin="0,-4,0,0"

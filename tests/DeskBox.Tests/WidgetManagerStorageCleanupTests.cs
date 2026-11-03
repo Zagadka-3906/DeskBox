@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using DeskBox.Contracts;
 using DeskBox.Models;
 using DeskBox.Services;
 
@@ -10,6 +11,7 @@ public sealed class WidgetManagerStorageCleanupTests : IDisposable
     private readonly string _storageRoot;
     private readonly string _desktopRoot;
     private readonly SettingsService _settingsService;
+    private readonly SearchFeatureSettingsStub _searchSettings;
     private readonly WidgetManager _widgetManager;
 
     public WidgetManagerStorageCleanupTests()
@@ -20,9 +22,10 @@ public sealed class WidgetManagerStorageCleanupTests : IDisposable
 
         _settingsService = new SettingsService(Path.Combine(_tempRoot, "settings"));
         _settingsService.Settings.DefaultManagedStorageRootPath = _storageRoot;
+        _searchSettings = new SearchFeatureSettingsStub(_settingsService);
 
         var fileService = new FileService();
-        var organizerService = new OrganizerService(_settingsService, fileService);
+        var organizerService = TestOrganizerServices.Create(_settingsService, fileService);
         var themeService = new ThemeService(_settingsService);
         _widgetManager = new WidgetManager(
             _settingsService,
@@ -30,8 +33,10 @@ public sealed class WidgetManagerStorageCleanupTests : IDisposable
             organizerService,
             themeService,
             new QuickCaptureService(new QuickCaptureStore(Path.Combine(_tempRoot, "quick-capture"))),
-            () => _desktopRoot,
-            recycleManagedFolderDeletes: false);
+            localizationService: null,
+            desktopPathProvider: () => _desktopRoot,
+            recycleManagedFolderDeletes: false,
+            searchFeatureSettings: _searchSettings);
     }
 
     [Fact]
@@ -336,6 +341,32 @@ public sealed class WidgetManagerStorageCleanupTests : IDisposable
     }
 
     [Fact]
+    public async Task RemoveWidgetAsync_FailedMoveBackToDesktop_KeepsWidgetAndFiles()
+    {
+        // A move-back that cannot complete must surface its failure with the
+        // widget fully intact — never a silent half-on-desktop, half-in-folder
+        // state behind an already-removed widget.
+        string managedFolder = Directory.CreateDirectory(Path.Combine(_storageRoot, "Stuck")).FullName;
+        string sourcePath = Path.Combine(managedFolder, "note.txt");
+        File.WriteAllText(sourcePath, "managed");
+        var widget = CreateManagedWidget("Stuck", managedFolder);
+        _settingsService.Settings.Widgets.Add(widget);
+
+        // Make the desktop destination unusable: a file where the desktop
+        // directory should be makes every planned move fail.
+        Directory.Delete(_desktopRoot);
+        File.WriteAllText(_desktopRoot, "not a directory");
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            _widgetManager.RemoveWidgetAsync(
+                widget.Id,
+                WidgetRemovalAction.MoveManagedFolderContentsToDesktop));
+
+        Assert.Contains(_settingsService.Settings.Widgets, item => item.Id == widget.Id);
+        Assert.True(File.Exists(sourcePath));
+    }
+
+    [Fact]
     public async Task RemoveWidgetAsync_MissingManagedFolder_RemovesConfigWithoutCreatingFolder()
     {
         string missingFolder = Path.Combine(_storageRoot, "Missing");
@@ -391,6 +422,130 @@ public sealed class WidgetManagerStorageCleanupTests : IDisposable
         Assert.Contains(widget.Id, _settingsService.Settings.DeletedWidgetIds);
         Assert.True(Directory.Exists(mappedFolder));
         Assert.Equal("mapped", File.ReadAllText(mappedFile));
+    }
+
+    [Fact]
+    public async Task RemoveWidgetAsync_SearchAwaitsRuntimeCommitBeforeFinishingDeletion()
+    {
+        var search = new WidgetConfig { Name = "Search", WidgetKind = WidgetKind.Search };
+        _settingsService.Settings.Widgets.Add(search);
+        FeatureWidgetSettings.SetEnabled(_settingsService.Settings, WidgetKind.Search, true);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _searchSettings.BeforeCommit = async _ =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+        };
+
+        Task deletion = _widgetManager.RemoveWidgetAsync(search.Id);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(deletion.IsCompleted);
+        release.TrySetResult();
+        await deletion;
+
+        Assert.Equal(1, _searchSettings.CommitCount);
+        Assert.False(_searchSettings.Enabled);
+        Assert.DoesNotContain(_settingsService.Settings.Widgets, item => item.Id == search.Id);
+        Assert.Contains(search.Id, _settingsService.Settings.DeletedWidgetIds);
+        var reloaded = new SettingsService(Path.Combine(_tempRoot, "settings"));
+        Assert.False(FeatureWidgetSettings.IsEnabled(reloaded.Settings, WidgetKind.Search));
+        Assert.DoesNotContain(reloaded.Settings.Widgets, item => item.Id == search.Id);
+    }
+
+    [Fact]
+    public async Task TodoMenuToggle_AndSettingsToggle_UseTheSameTransitionOrder()
+    {
+        FeatureWidgetSettings.SetEnabled(_settingsService.Settings, WidgetKind.Todo, true);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transitions = new List<bool>();
+        TodoSettingsCoordinator? coordinator = null;
+        coordinator = new TodoSettingsCoordinator(_settingsService, async enabled =>
+        {
+            transitions.Add(enabled);
+            coordinator!.CommitEnabledState(enabled);
+            if (!enabled)
+            {
+                entered.TrySetResult();
+                await release.Task;
+            }
+        });
+        var fileService = new FileService();
+        var manager = new WidgetManager(
+            _settingsService,
+            fileService,
+            TestOrganizerServices.Create(_settingsService, fileService),
+            new ThemeService(_settingsService),
+            new QuickCaptureService(new QuickCaptureStore(Path.Combine(_tempRoot, "todo-toggle-capture"))),
+            localizationService: null,
+            desktopPathProvider: () => _desktopRoot,
+            recycleManagedFolderDeletes: false,
+            todoSettings: coordinator);
+
+        Task menuDisable = manager.SetFeatureWidgetEnabledAsync(
+            WidgetKind.Todo, enabled: false, reveal: false);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Task settingsEnable = coordinator.SetEnabledAsync(true);
+        Assert.False(settingsEnable.IsCompleted);
+        release.TrySetResult();
+        await Task.WhenAll(menuDisable, settingsEnable);
+
+        Assert.Equal([false, true], transitions);
+        Assert.True(FeatureWidgetSettings.IsEnabled(_settingsService.Settings, WidgetKind.Todo));
+        await coordinator.StopAsync();
+    }
+
+    [Fact]
+    public async Task HiddenMerge_PostSaveFailureAndRejectedRollbackKeepCommittedTopologyUsable()
+    {
+        var target = new WidgetConfig
+        {
+            Name = "Target",
+            WidgetKind = WidgetKind.File,
+            MappedFolderPath = Directory.CreateDirectory(Path.Combine(_tempRoot, "target-files")).FullName,
+            FollowsDefaultStoragePath = false,
+            IsVisible = false
+        };
+        var source = new WidgetConfig
+        {
+            Name = "Source",
+            WidgetKind = WidgetKind.File,
+            MappedFolderPath = Directory.CreateDirectory(Path.Combine(_tempRoot, "source-files")).FullName,
+            FollowsDefaultStoragePath = false,
+            IsVisible = false
+        };
+        WidgetChromeModeNames.SetOverrideMode(target, WidgetChromeMode.Standard);
+        WidgetChromeModeNames.SetOverrideMode(source, WidgetChromeMode.Standard);
+        _settingsService.Settings.Widgets.Add(target);
+        _settingsService.Settings.Widgets.Add(source);
+
+        string? previousRoot = Environment.GetEnvironmentVariable("DESKBOX_DEV_DATA_ROOT");
+        string? previousStage = Environment.GetEnvironmentVariable("DESKBOX_DEV_GROUP_FAIL_STAGE");
+        try
+        {
+            Environment.SetEnvironmentVariable("DESKBOX_DEV_DATA_ROOT", _tempRoot);
+            Environment.SetEnvironmentVariable("DESKBOX_DEV_GROUP_FAIL_STAGE",
+                "merge-post-save-commit,merge-rollback-save");
+
+            Assert.True(await _widgetManager.MergeWidgetsAsync(source.Id, target.Id));
+            Assert.False(WidgetGroupFailureProbe.Consume("merge-post-save-commit"));
+            Assert.False(WidgetGroupFailureProbe.Consume("merge-rollback-save"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DESKBOX_DEV_DATA_ROOT", previousRoot);
+            Environment.SetEnvironmentVariable("DESKBOX_DEV_GROUP_FAIL_STAGE", previousStage);
+        }
+
+        WidgetGroupConfig group = Assert.Single(_settingsService.Settings.WidgetGroups);
+        Assert.Equal([target.Id, source.Id], group.MemberIds);
+        Assert.Equal(target.Id, group.ActiveMemberId);
+        Assert.False(group.IsVisible);
+        Assert.Equal(0, _widgetManager.LoadedSurfaceCount);
+        var reloaded = new SettingsService(Path.Combine(_tempRoot, "settings"));
+        await reloaded.LoadAsync();
+        Assert.Equal(group.Id, Assert.Single(reloaded.Settings.WidgetGroups).Id);
     }
 
     [Fact]
@@ -817,5 +972,28 @@ public sealed class WidgetManagerStorageCleanupTests : IDisposable
         {
             Directory.Delete(_tempRoot, recursive: true);
         }
+    }
+
+    private sealed class SearchFeatureSettingsStub(SettingsService settings) : ISearchFeatureSettings
+    {
+        public bool Enabled => FeatureWidgetSettings.IsEnabled(settings.Settings, WidgetKind.Search);
+        public event Action? FeatureChanged { add { } remove { } }
+        public Func<bool, Task>? BeforeCommit { get; set; }
+        public int CommitCount { get; private set; }
+
+        public Task SetEnabledAsync(bool enabled, bool reveal = true,
+            CancellationToken cancellationToken = default) =>
+            CommitEnabledStateAsync(enabled, cancellationToken);
+
+        public async Task CommitEnabledStateAsync(bool enabled,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (BeforeCommit is not null) await BeforeCommit(enabled);
+            FeatureWidgetSettings.SetEnabled(settings.Settings, WidgetKind.Search, enabled);
+            CommitCount++;
+        }
+
+        public Task StopAsync() => Task.CompletedTask;
     }
 }

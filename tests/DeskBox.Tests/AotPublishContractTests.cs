@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -211,7 +211,7 @@ public sealed class AotPublishContractTests
         using JsonDocument globalJson = JsonDocument.Parse(
             File.ReadAllText(TestPaths.FromRepository("global.json")));
         JsonElement sdk = globalJson.RootElement.GetProperty("sdk");
-        Assert.Equal("10.0.303", sdk.GetProperty("version").GetString());
+        Assert.Equal("10.0.402", sdk.GetProperty("version").GetString());
         Assert.Equal("latestPatch", sdk.GetProperty("rollForward").GetString());
 
         string rustToolchain = File.ReadAllText(TestPaths.FromRepository("rust-toolchain.toml"));
@@ -543,7 +543,7 @@ public sealed class AotPublishContractTests
 
     [Theory]
     [InlineData("src/DeskBox/ViewModels/SearchPopupViewModel.cs", 15)]
-    [InlineData("src/DeskBox/ViewModels/SettingsViewModel.cs", 77)]
+    [InlineData("src/DeskBox/ViewModels/SettingsViewModel.cs", 18)]
     public void AotSensitiveViewModels_UseObservablePartialProperties(
         string relativePath,
         int expectedCount)
@@ -556,6 +556,28 @@ public sealed class AotPublishContractTests
         Assert.Equal(
             expectedCount,
             Regex.Matches(source, @"\[ObservableProperty\]\s+public\s+partial\s+").Count);
+    }
+
+    [Fact]
+    public void TodoSettingsEditor_PreservesWritableAotBindingSurface()
+    {
+        // Batch 47 moved the Todo section's binding surface onto the
+        // section editor; the writable AOT bridge follows it there.
+        string bridge = File.ReadAllText(TestPaths.FromRepository(
+            "src/DeskBox/Features/Todo/TodoSettingsViewModel.AotBindableProperties.cs"));
+        foreach ((string name, Type expectedType) in new[]
+        {
+            ("Enabled", typeof(bool)),
+            ("RemindersEnabled", typeof(bool)),
+            ("DefaultOffsetMinutes", typeof(int))
+        })
+        {
+            var property = typeof(DeskBox.Features.Todo.TodoSettingsViewModel).GetProperty(name);
+            Assert.NotNull(property);
+            Assert.Equal(expectedType, property!.PropertyType);
+            Assert.True(property.CanRead && property.CanWrite);
+            Assert.Contains($"nameof({name})", bridge, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -602,8 +624,11 @@ public sealed class AotPublishContractTests
         Assert.True(suppressionStart >= 0);
 
         int firstMigratedAssignment = source.IndexOf("AutoStart = StartupService.IsEnabled();", constructorStart, StringComparison.Ordinal);
+        // Batch 50 moved the performance trim toggles to the performance
+        // editor; the hover-button selection remains the last facade
+        // assignment covered by the constructor's suppression window.
         int lastMigratedAssignment = source.IndexOf(
-            "WeatherShowPressure = settings.WeatherShowPressure;",
+            "ShowHoverButtons = settings.ShowHoverButtons;",
             constructorStart,
             StringComparison.Ordinal);
         int suppressionEnd = source.IndexOf("_isRestoringDefaults = false;", suppressionStart, StringComparison.Ordinal);

@@ -4,11 +4,13 @@
 
 完整中文说明 · [返回扩展版首页](README.md)
 
-> **非官方宿舍用电扩展版。** 本分支在 DeskBox 1.5.5 基础上加入深圳大学宿舍用电格子，由 [Zagadka-3906](https://github.com/Zagadka-3906) 独立维护，并非 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox)的发行版。[下载本分支的 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.4)。
+> **非官方宿舍用电扩展版。** 本分支在 DeskBox 1.5.9 基础上加入深圳大学宿舍用电格子，由 [Zagadka-3906](https://github.com/Zagadka-3906) 独立维护，并非 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox)的发行版。[下载本分支的 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.9-dorm.1)。
+
+本版已合并官方 1.5.9 的多显示器布局、格子外观、原生右键菜单、更新体验和稳定性改进，详见[官方发行说明](https://github.com/Tianyu199509/DeskBox/releases/tag/v1.5.9)。
 
 > 官方项目目前暂不合并外部 PR，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-[![宿舍用电扩展版](https://img.shields.io/badge/fork-v1.5.5--dorm.4-2563EB.svg)](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.5-dorm.4)
+[![宿舍用电扩展版](https://img.shields.io/badge/fork-v1.5.9--dorm.1-2563EB.svg)](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.9-dorm.1)
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%2F11-0078D4.svg)](#环境要求)
 [![x64 安装包](https://img.shields.io/badge/fork%20installer-x64-5C2D91.svg)](#下载)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
@@ -30,25 +32,25 @@ DeskBox 使用贴近 Windows 原生体验的材质，同时保留普通桌面文
 | | |
 | --- | --- |
 | **支持平台** | Windows 10/11；本扩展版仅提供 x64 安装包（官方版另有 ARM64） |
-| **技术栈** | C#、WinUI 3、.NET 10 Native AOT、Windows App SDK 2.4、Rust 原生 Shell 层 |
+| **技术栈** | C#、WinUI 3、.NET 10 Native AOT、Windows App SDK 2.5.1、Rust 原生 Shell 层 |
 | **数据方式** | 本地优先；文件、随记、待办、设置与布局保存在电脑上 |
-| **界面语言** | 简体中文、繁體中文、English、日本語、Deutsch、Português do Brasil、हिन्दी、Español、Français、العربية、বাংলা、Русский |
+| **界面语言** | 简体中文、繁體中文、English、日本語、Deutsch、Português do Brasil、हिन्दी、Español、Français、العربية、বাংলা、Русский、한국어 |
 | **开源协议** | GPL-3.0-only |
 
-12 种可选语言使用一致的资源键和格式化占位符覆盖范围。
+13 种可选语言使用一致的资源键和格式化占位符覆盖范围。
 
 ## 下载
 
 ### 宿舍用电扩展版（x64）
 
-- [下载非官方 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.4/DeskBox_DormElectricity_1.5.5_dorm.4_x64.exe)及其 [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.5-dorm.4/DeskBox_DormElectricity_1.5.5_dorm.4_x64.exe.sha256)。本版基于 DeskBox 1.5.5，增加了下述宿舍用电格子。
+- [下载非官方 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.9-dorm.1/DeskBox_DormElectricity_1.5.9_dorm.1_x64.exe)及其 [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.9-dorm.1/DeskBox_DormElectricity_1.5.9_dorm.1_x64.exe.sha256)。本版基于 DeskBox 1.5.9，增加了下述宿舍用电格子。
 
 安装包为内置私有 Windows App Runtime 的 x64 Full Native AOT 构建，尚未签名。更新前请备份 `%LOCALAPPDATA%\DeskBox\data`。软件内的更新入口指向官方发行版；直接安装不含此格子的官方版本会覆盖本扩展版，并可能改写已保存的格子布局。要保留宿舍用电格子，应先把官方更新合并到此分支，再构建新的安装包。
 
 ### DeskBox 官方版（不含本扩展版格子）
 
-- [DeskBox 1.5.5 x64 安装包](https://github.com/Tianyu199509/DeskBox/releases/download/v1.5.5/DeskBox_Setup_1.5.5_x64.exe)，推荐大多数 Intel 和 AMD 电脑使用。
-- [DeskBox 1.5.5 ARM64 安装包](https://github.com/Tianyu199509/DeskBox/releases/download/v1.5.5/DeskBox_Setup_1.5.5_arm64.exe)，推荐骁龙、Surface Pro X 等 Windows on ARM 电脑使用。
+- [DeskBox 1.5.9 x64 安装包](https://github.com/Tianyu199509/DeskBox/releases/download/v1.5.9/DeskBox_Setup_1.5.9_x64.exe)，推荐大多数 Intel 和 AMD 电脑使用。
+- [DeskBox 1.5.9 ARM64 安装包](https://github.com/Tianyu199509/DeskBox/releases/download/v1.5.9/DeskBox_Setup_1.5.9_arm64.exe)，推荐骁龙、Surface Pro X 等 Windows on ARM 电脑使用。
 
 两个官方安装包都是 Full Native AOT 构建，并内置对应架构的私有 Windows App Runtime 2.4，可离线安装，不需要另外下载 .NET 10 或 Windows App Runtime。
 

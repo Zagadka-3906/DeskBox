@@ -25,7 +25,7 @@ public static class JumpListService
     {
         try
         {
-            SetCurrentProcessExplicitAppUserModelID(AppUserModelId);
+            JumpListNativeMethods.SetCurrentProcessExplicitAppUserModelID(AppUserModelId);
             App.LogVerbose($"[JumpList] AUMID registered: {AppUserModelId}");
         }
         catch (Exception ex)
@@ -59,10 +59,10 @@ public static class JumpListService
 
             jumpList.Items.Clear();
 
-            AddItem(jumpList, localization.T("JumpList.ToggleWidgets"), ArgToggleWidgets, "toggle");
-            AddItem(jumpList, localization.T("JumpList.NewFolderWidget"), ArgNewFolderWidget, "newfolder");
-            AddItem(jumpList, localization.T("JumpList.OpenSettings"), ArgOpenSettings, "settings");
-            AddItem(jumpList, localization.T("JumpList.OpenStorage"), ArgOpenStorage, "storage");
+            AddItem(jumpList, localization.T("JumpList.ToggleWidgets"), ArgToggleWidgets);
+            AddItem(jumpList, localization.T("JumpList.NewFolderWidget"), ArgNewFolderWidget);
+            AddItem(jumpList, localization.T("JumpList.OpenSettings"), ArgOpenSettings);
+            AddItem(jumpList, localization.T("JumpList.OpenStorage"), ArgOpenStorage);
 
             await jumpList.SaveAsync();
             App.LogVerbose("[JumpList] Jump list configured successfully");
@@ -159,15 +159,15 @@ public static class JumpListService
     private static void AddItem(
         Windows.UI.StartScreen.JumpList jumpList,
         string displayName,
-        string arguments,
-        string groupId)
+        string arguments)
     {
         try
         {
             var item = Windows.UI.StartScreen.JumpListItem.CreateWithArguments(
                 arguments,
                 displayName);
-            item.GroupName = "DeskBox";
+            // No GroupName: custom items without one fall into the system-
+            // localized "Tasks" section instead of an unlocalized header.
             item.Description = displayName;
             jumpList.Items.Add(item);
         }
@@ -177,11 +177,6 @@ public static class JumpListService
         }
     }
 
-    [DllImport("shell32.dll", EntryPoint = "SetCurrentProcessExplicitAppUserModelID",
-        CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetCurrentProcessExplicitAppUserModelID(string appId);
-
     // ── Shortcut AUMID property (for unpackaged apps) ──
 
     private static readonly Guid s_iid_IPropertyStore =
@@ -190,15 +185,8 @@ public static class JumpListService
     private static readonly PropertyKey s_pkey_AppUserModelID = new(
         new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), 5);
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    private static extern int SHGetPropertyStoreFromParsingName(
-        string pszPath, IntPtr pbc, uint flags, ref Guid riid, out IntPtr ppv);
-
-    [DllImport("propsys.dll", CharSet = CharSet.Unicode)]
-    private static extern int PropVariantFromString(string psz, IntPtr ppropvar);
-
-    [DllImport("ole32.dll")]
-    private static extern int PropVariantClear(IntPtr ppropvar);
+    // shell32/propsys/ole32 AUMID entry points live in
+    // DeskBox.Platform.JumpListNativeMethods.
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     private struct PropertyKey
@@ -213,17 +201,29 @@ public static class JumpListService
         }
     }
 
-    [ComImport]
-    [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IPropertyStore
-    {
-        uint GetCount();
-        void GetAt(uint propertyIndex, out PropertyKey pkey);
-        void GetValue(ref PropertyKey key, IntPtr pv);
-        void SetValue(ref PropertyKey key, IntPtr pv);
-        void Commit();
-    }
+    // IPropertyStore via raw vtable slots (see ComVtable — classic ComImport
+    // RCW marshaling does not exist on NativeAOT, so the retail build never
+    // reached GetValue at all). Order per propsys.h after IUnknown:
+    // GetCount(3), GetAt(4), GetValue(5), SetValue(6), Commit(7).
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int PropertyStoreGetValue(
+        IntPtr self, ref PropertyKey key, IntPtr pv);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int PropertyStoreSetValue(
+        IntPtr self, ref PropertyKey key, IntPtr pv);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int PropertyStoreCommit(IntPtr self);
+
+    private static int StoreGetValue(IntPtr store, ref PropertyKey key, IntPtr pv)
+        => ComVtable.Slot<PropertyStoreGetValue>(store, 5)(store, ref key, pv);
+
+    private static int StoreSetValue(IntPtr store, ref PropertyKey key, IntPtr pv)
+        => ComVtable.Slot<PropertyStoreSetValue>(store, 6)(store, ref key, pv);
+
+    private static int StoreCommit(IntPtr store)
+        => ComVtable.Slot<PropertyStoreCommit>(store, 7)(store);
 
     /// <summary>
     /// Set the System.AppUserModelID property on the Start Menu shortcut
@@ -242,14 +242,13 @@ public static class JumpListService
             }
 
             Guid iid = s_iid_IPropertyStore;
-            int hr = SHGetPropertyStoreFromParsingName(
+            int hr = JumpListNativeMethods.SHGetPropertyStoreFromParsingName(
                 shortcutPath, IntPtr.Zero, 0, ref iid, out IntPtr storePtr);
             if (hr != 0 || storePtr == IntPtr.Zero)
             {
                 return;
             }
 
-            var propStore = (IPropertyStore)Marshal.GetObjectForIUnknown(storePtr);
             try
             {
                 // Check current value
@@ -259,10 +258,13 @@ public static class JumpListService
                 try
                 {
                     Marshal.Copy(new byte[propVarSize], 0, pv, propVarSize);
-                    propStore.GetValue(ref key, pv);
+                    if (StoreGetValue(storePtr, ref key, pv) < 0)
+                    {
+                        return;
+                    }
 
                     string? current = ReadPropVariantString(pv);
-                    PropVariantClear(pv);
+                    JumpListNativeMethods.PropVariantClear(pv);
 
                     if (string.Equals(current, AppUserModelId, StringComparison.Ordinal))
                     {
@@ -271,10 +273,18 @@ public static class JumpListService
 
                     // Set new value
                     Marshal.Copy(new byte[propVarSize], 0, pv, propVarSize);
-                    PropVariantFromString(AppUserModelId, pv);
-                    propStore.SetValue(ref key, pv);
-                    PropVariantClear(pv);
-                    propStore.Commit();
+                    JumpListNativeMethods.PropVariantFromString(AppUserModelId, pv);
+                    if (StoreSetValue(storePtr, ref key, pv) < 0)
+                    {
+                        return;
+                    }
+
+                    JumpListNativeMethods.PropVariantClear(pv);
+                    if (StoreCommit(storePtr) < 0)
+                    {
+                        return;
+                    }
+
                     App.LogVerbose($"[JumpList] Shortcut AUMID set: {shortcutPath}");
                 }
                 finally
@@ -284,7 +294,7 @@ public static class JumpListService
             }
             finally
             {
-                Marshal.ReleaseComObject(propStore);
+                Marshal.Release(storePtr);
             }
         }
         catch (Exception ex)

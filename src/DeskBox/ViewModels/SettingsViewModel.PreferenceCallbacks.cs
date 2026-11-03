@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Collections.ObjectModel;
 using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -57,6 +57,14 @@ public partial class SettingsViewModel
 
     private void ApplyAutoStartState(StartupRegistrationState state)
     {
+        // First call runs before any overwrite: capture the persisted
+        // preference so a vanished registration can be attributed to
+        // external cleanup (see the field's comment).
+        if (_autoStartPreferenceAtLoad is null)
+        {
+            _autoStartPreferenceAtLoad = AutoStart;
+        }
+
         _autoStartState = state;
         bool effectiveValue = state is
             StartupRegistrationState.Enabled or
@@ -79,13 +87,9 @@ public partial class SettingsViewModel
         OnPropertyChanged(nameof(AutoStartSystemSettingsVisibility));
         OnPropertyChanged(nameof(AutoStartModeVisibility));
 
-        if (_settingsService.Settings.AutoStart == effectiveValue)
-        {
-            return;
-        }
-
-        _settingsService.Settings.AutoStart = effectiveValue;
-        _settingsService.SaveDebounced();
+        // The coordinator skips unchanged values, mirroring the page's old
+        // read-before-write guard.
+        _interactionSettings.SetAutoStart(effectiveValue);
     }
 
     partial void OnAutoCheckForUpdatesChanged(bool value)
@@ -95,220 +99,98 @@ public partial class SettingsViewModel
             return;
         }
 
-        _settingsService.Settings.AutoCheckForUpdates = value;
-        _settingsService.SaveDebounced();
+        _interactionSettings.SetAutoCheckForUpdates(value);
     }
 
-    partial void OnDoubleClickToOpenChanged(bool value)
-    {
-        OnPropertyChanged(nameof(SelectedFileOpenMethod));
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.DoubleClickToOpen = value;
-        _settingsService.SaveDebounced();
-    }
-
-    partial void OnFileItemSystemContextMenuEnabledChanged(bool value)
+    partial void OnShowReleaseNotesAfterUpdateChanged(bool value)
     {
         if (_isRestoringDefaults)
         {
             return;
         }
 
-        _settingsService.Settings.FileItemSystemContextMenuEnabled = value;
-        _settingsService.SaveDebounced();
+        _interactionSettings.SetShowReleaseNotesAfterUpdate(value);
+    }
+
+    partial void OnAutoDownloadUpdatesChanged(bool value)
+    {
+        if (_isRestoringDefaults)
+        {
+            return;
+        }
+
+        _interactionSettings.SetAutoDownloadUpdates(value);
+    }
+
+    partial void OnShowUpdateToastNotificationChanged(bool value)
+    {
+        if (_isRestoringDefaults)
+        {
+            return;
+        }
+
+        _interactionSettings.SetShowUpdateToastNotification(value);
+    }
+
+    partial void OnSilentStartupChanged(bool value)
+    {
+        if (_isRestoringDefaults)
+        {
+            return;
+        }
+
+        _interactionSettings.SetSilentStartup(value);
+    }
+
+    /// <summary>
+    /// Host linkage for the interaction editor: the user toggled the
+    /// file-item context menu (the editor persisted the value through the
+    /// coordinator). Warm the native context-menu server so the first
+    /// right-click in a widget does not pay the cold handler-loading cost.
+    /// </summary>
+    private void OnInteractionFileItemContextMenuUserChanged(bool value)
+    {
         if (value)
         {
-            // Warm the native context-menu server so the first right-click in
-            // a widget does not pay the cold handler-loading cost.
             ShellContextMenuProxy.Prewarm();
         }
     }
 
-    partial void OnResizeSnapEnabledChanged(bool value)
+    // Host linkages for the interaction editor: the editor persists the
+    // snap and show-desktop fields through the coordinator; the resize-guide
+    // overlay sync and the visible-layer refresh stay on the shell because
+    // they reach host services.
+    private void OnInteractionSnapEnabledUserChanged(bool value)
     {
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.ResizeSnapEnabled = value;
-        _settingsService.SaveDebounced();
-
-        // Sync to the live overlay service
         if (App.Current is { } app)
         {
             app.ResizeGuideOverlay.IsSnapEnabled = value;
         }
     }
 
-    partial void OnWidgetSnapSpacingChanged(double value)
+    private void OnInteractionSnapSpacingUserChanged(double value)
     {
-        double normalized = SettingsService.NormalizeWidgetSnapSpacing(value);
-        if (!double.IsFinite(value) || Math.Abs(value - normalized) > 0.0001)
-        {
-            WidgetSnapSpacing = normalized;
-            return;
-        }
-
-        OnPropertyChanged(nameof(WidgetSnapSpacingText));
-
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.WidgetSnapSpacing = normalized;
-        _settingsService.SaveDebounced();
         if (App.Current is { } app)
         {
-            app.ResizeGuideOverlay.SnapSpacingDips = normalized;
+            app.ResizeGuideOverlay.SnapSpacingDips = value;
         }
     }
 
-    partial void OnKeepWidgetsVisibleOnShowDesktopChanged(bool value)
+    private void OnInteractionShowDesktopBehaviorUserChanged()
     {
-        OnPropertyChanged(nameof(SelectedShowDesktopBehavior));
-        if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-        {
-            return;
-        }
-
-        _settingsService.Settings.KeepWidgetsVisibleOnShowDesktop = value;
-        _settingsService.SaveDebounced();
         App.Current?.WidgetManager?.RefreshVisibleWidgetDesktopLayers(
             "settings-show-desktop-visibility");
     }
 
-    public string SelectedFileOpenMethod
-    {
-        get => DoubleClickToOpen ? FileOpenMethodDoubleClick : FileOpenMethodSingleClick;
-        set => DoubleClickToOpen = !string.Equals(
-            value,
-            FileOpenMethodSingleClick,
-            StringComparison.Ordinal);
-    }
-
-    public IReadOnlyList<SettingsOption> AvailableFileOpenMethodOptions =>
-        WrapOptions(
-        [
-            new(FileOpenMethodSingleClick, _localizationService.T("Settings.OpenMethod.SingleClick")),
-            new(FileOpenMethodDoubleClick, _localizationService.T("Settings.OpenMethod.DoubleClick"))
-        ]);
-
-    public string SelectedShowDesktopBehavior
-    {
-        get => KeepWidgetsVisibleOnShowDesktop
-            ? ShowDesktopBehaviorKeepVisible
-            : ShowDesktopBehaviorHideWithWindows;
-        set => KeepWidgetsVisibleOnShowDesktop = !string.Equals(
-            value,
-            ShowDesktopBehaviorHideWithWindows,
-            StringComparison.Ordinal);
-    }
-
-    public IReadOnlyList<SettingsOption> AvailableShowDesktopBehaviorOptions =>
-        WrapOptions(
-        [
-            new(ShowDesktopBehaviorKeepVisible, _localizationService.T("Settings.ShowDesktopBehavior.KeepVisible")),
-            new(ShowDesktopBehaviorHideWithWindows, _localizationService.T("Settings.ShowDesktopBehavior.HideWithWindows"))
-        ]);
-
-    partial void OnDefaultWidthChanged(double value)
-    {
-        if (_isRestoringDefaults)
-        {
-            OnPropertyChanged(nameof(DefaultWidthInput));
-            return;
-        }
-
-        if (double.IsNaN(value))
-        {
-            DefaultWidth = _settingsService.Settings.DefaultWidgetWidth;
-            return;
-        }
-
-        double normalizedValue = Math.Clamp(
-            Math.Round(value / 10d, MidpointRounding.AwayFromZero) * 10d,
-            SettingsService.MinWidgetWidth,
-            1200d);
-
-        if (Math.Abs(normalizedValue - value) > 0.0001)
-        {
-            DefaultWidth = normalizedValue;
-            return;
-        }
-
-        _settingsService.Settings.DefaultWidgetWidth = normalizedValue;
-        _settingsService.SaveDebounced();
-        OnPropertyChanged(nameof(DefaultWidthInput));
-    }
-
-    partial void OnDefaultHeightChanged(double value)
-    {
-        if (_isRestoringDefaults)
-        {
-            OnPropertyChanged(nameof(DefaultHeightInput));
-            return;
-        }
-
-        if (double.IsNaN(value))
-        {
-            DefaultHeight = _settingsService.Settings.DefaultWidgetHeight;
-            return;
-        }
-
-        double normalizedValue = Math.Clamp(
-            Math.Round(value / 10d, MidpointRounding.AwayFromZero) * 10d,
-            SettingsService.MinWidgetHeight,
-            1200d);
-
-        if (Math.Abs(normalizedValue - value) > 0.0001)
-        {
-            DefaultHeight = normalizedValue;
-            return;
-        }
-
-        _settingsService.Settings.DefaultWidgetHeight = normalizedValue;
-        _settingsService.SaveDebounced();
-        OnPropertyChanged(nameof(DefaultHeightInput));
-    }
-
-    partial void OnHideShortcutArrowOverlayChanged(bool value)
-    {
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.HideShortcutArrowOverlay = value;
-        _settingsService.SaveDebounced();
-    }
-
-    partial void OnShowImageFilesAsIconsChanged(bool value)
-    {
-        if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-        {
-            return;
-        }
-
-        _settingsService.Settings.ShowImageFilesAsIcons = value;
-        _settingsService.SaveDebounced();
-    }
-
     partial void OnShowHoverButtonsChanged(bool value)
     {
-        OnPropertyChanged(nameof(HoverButtonActionsSummaryText));
+        _interactionSettings.UpdateHoverButtonActionsSummary(BuildHoverButtonActionsSummary());
         if (_isRestoringDefaults)
         {
             return;
         }
 
-        _settingsService.Settings.ShowHoverButtons = value;
-        _settingsService.SaveDebounced();
+        _interactionSettings.SetShowHoverButtons(value);
     }
 
     partial void OnShowHoverActionLockPositionChanged(bool value)
@@ -336,80 +218,8 @@ public partial class SettingsViewModel
         OnHoverButtonActionSelectionChanged(SettingsService.WidgetHoverActionDelete, value);
     }
 
-    partial void OnShowListItemDetailsChanged(bool value)
-    {
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.ShowListItemDetails = value;
-        _settingsService.SaveDebounced();
-    }
-
-    partial void OnShowFileItemPathTooltipsChanged(bool value)
-    {
-        if (_isRestoringDefaults || _isApplyingSettingsSnapshot)
-        {
-            return;
-        }
-
-        _settingsService.Settings.ShowFileItemPathTooltips = value;
-        _settingsService.SaveDebounced();
-    }
-
-    partial void OnShowFileExtensionsChanged(bool value)
-    {
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.ShowFileExtensions = value;
-        _settingsService.SaveDebounced();
-    }
-
-    partial void OnHideShortcutExtensionWhenShowingFileExtensionsChanged(bool value)
-    {
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.HideShortcutExtensionWhenShowingFileExtensions = value;
-        _settingsService.SaveDebounced();
-    }
-
-    partial void OnIdleWorkingSetTrimEnabledChanged(bool value)
-    {
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.IdleWorkingSetTrimEnabled = value;
-        _settingsService.SaveDebounced();
-    }
-
-    partial void OnImmediateHiddenWorkingSetTrimEnabledChanged(bool value)
-    {
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.ImmediateHiddenWorkingSetTrimEnabled = value;
-        _settingsService.SaveDebounced();
-    }
-
-    partial void OnQuiescenceWorkingSetTrimEnabledChanged(bool value)
-    {
-        if (_isRestoringDefaults)
-        {
-            return;
-        }
-
-        _settingsService.Settings.Performance.QuiescenceWorkingSetTrimEnabled = value;
-        _settingsService.SaveDebounced();
-    }
+    // The three working-set trim switches render in the performance section;
+    // their binding surface moved to the performance editor (batch 50) and
+    // writes go through the interaction / performance coordinators from the
+    // editor's change handlers.
 }

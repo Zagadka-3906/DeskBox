@@ -18,8 +18,6 @@ public sealed record WidgetGroupJoinTarget(
 
 public sealed partial class WidgetManager
 {
-    private static readonly TimeSpan WidgetGroupFirstFrameTimeout =
-        TimeSpan.FromMilliseconds(900);
     private readonly SemaphoreSlim _widgetGroupGate = new(1, 1);
     private readonly WidgetSurfaceSwitchGatePool _widgetSurfaceSwitchGates =
         new();
@@ -85,12 +83,6 @@ public sealed partial class WidgetManager
     public event Action? WidgetGroupsChanged;
 
     public bool IsWidgetGroupingEnabled => true;
-
-    public void NotifyWidgetGroupingAvailabilityChanged()
-    {
-        // Retained for compatibility with older callers. Grouping is always
-        // available now, so there is no runtime capability to refresh.
-    }
 
     public async Task<bool> DissolveAllWidgetGroupsAsync()
     {
@@ -216,6 +208,14 @@ public sealed partial class WidgetManager
                 glyph = "\uE8A5";
             }
 
+            string customEmoji =
+                WidgetTitleIconCustomization.GetEmojiOverride(config) ??
+                string.Empty;
+            string? customImagePath = customEmoji.Length == 0
+                ? WidgetTitleIconAssetStore.Current.ResolveImagePath(
+                    config.Id,
+                    WidgetTitleIconCustomization.GetImageFileNameOverride(config))
+                : null;
             members.Add(new WidgetGroupMemberPresentation(
                 config.Id,
                 ResolveGroupMemberDisplayName(config),
@@ -226,7 +226,9 @@ public sealed partial class WidgetManager
                         config.FollowsDefaultStoragePath)
                     : WidgetTitleIconKindNames.FromWidgetKind(
                         config.WidgetKind),
-                string.Equals(group.ActiveMemberId, config.Id, StringComparison.Ordinal)));
+                string.Equals(group.ActiveMemberId, config.Id, StringComparison.Ordinal),
+                customEmoji,
+                customImagePath));
         }
 
         return members.Count < 2
@@ -738,6 +740,7 @@ public sealed partial class WidgetManager
         await _widgetGroupGate.WaitAsync();
         try
         {
+            AppSettings settings = _settingsService.Settings;
             WidgetConfig? sourceConfig = FindConfig(sourceWidgetId);
             WidgetConfig? targetConfig = FindConfig(targetWidgetId);
             if (sourceConfig is null || targetConfig is null ||
@@ -759,6 +762,13 @@ public sealed partial class WidgetManager
             {
                 return false;
             }
+
+            // A member switch uses Surface gates rather than the topology
+            // gate. Let any in-flight switch settle before reading the active
+            // member, and keep both surfaces stable through the merge commit.
+            using IDisposable sourceAndTargetSwitches =
+                await _widgetSurfaceSwitchGates.AcquireManyAsync(
+                    [sourceGroup?.SurfaceId, targetGroup?.SurfaceId]);
 
             bool preserveRaisedLayer = ShouldPreserveRaisedWidgetLayer(
                 sourceGroup?.ActiveMemberId ?? sourceWidgetId,
@@ -815,6 +825,30 @@ public sealed partial class WidgetManager
                     .ToList();
             WidgetGroupConfig mergedGroup = targetGroup ??
                 CreateGroupFromTarget(activeTargetConfig, groupMode);
+            using IDisposable? newGroupSwitches = targetGroup is null
+                ? await _widgetSurfaceSwitchGates.AcquireManyAsync(
+                    [mergedGroup.SurfaceId])
+                : null;
+            IReadOnlyList<WidgetSurfaceClaimTransfer<IDesktopWidgetWindow>>
+                retiringSurfaceClaims;
+            try
+            {
+                retiringSurfaceClaims = _widgetSurfaces.CaptureGroupClaimTransfers(
+                    new WidgetSurfaceDefinition(
+                        mergedGroup.SurfaceId,
+                        mergedGroup.Id,
+                        combinedMembers,
+                        activeTargetId),
+                    sourceGroupId: sourceGroup?.Id,
+                    sourceSurfaceId: sourceGroup?.SurfaceId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                App.Log(
+                    $"[WidgetGroup] Merge rejected because a member Surface " +
+                    $"claim changed source={sourceWidgetId} target={targetWidgetId}: {ex}");
+                return false;
+            }
             if (targetGroup is not null)
             {
                 WidgetConfig? loadedTargetConfig = GetLoadedWindow(activeTargetId)?.Config;
@@ -838,6 +872,10 @@ public sealed partial class WidgetManager
             {
                 _settingsService.Settings.WidgetGroups.Add(mergedGroup);
             }
+            List<WidgetGroupConfig> committedGroups =
+                settings.WidgetLayout.WidgetGroups.ToList();
+            bool topologySaveAttempted = false;
+            bool topologyPersisted = false;
 
             // Establish a ready, visible unified host before retiring any
             // member window. A construction/readiness failure must leave the
@@ -847,28 +885,110 @@ public sealed partial class WidgetManager
             {
                 await PromoteGroupToUnifiedSurfaceHostAsync(
                     mergedGroup,
-                    beforeRetireAsync: SaveWidgetGroupSettingsCheckedAsync,
-                    preserveRaisedLayer: preserveRaisedLayer);
+                    beforeRetireAsync: async () =>
+                    {
+                        topologySaveAttempted = true;
+                        await SaveWidgetGroupSettingsCheckedAsync();
+                        topologyPersisted = true;
+                        WidgetGroupFailureProbe.ThrowIfRequested("merge-post-save-commit");
+                    },
+                    preserveRaisedLayer: preserveRaisedLayer,
+                    expectedRetiringClaims: retiringSurfaceClaims);
             }
             catch (Exception ex)
             {
-                _settingsService.Settings.WidgetGroups = groupSnapshot;
-                SynchronizeLoadedSurfaceDefinitions();
+                if (!topologyPersisted)
+                {
+                    settings.WidgetLayout.WidgetGroups = groupSnapshot;
+                    if (topologySaveAttempted)
+                    {
+                        try
+                        {
+                            await SaveWidgetGroupSettingsCheckedAsync();
+                        }
+                        catch (Exception rollbackSaveException)
+                        {
+                            App.Log(
+                                $"[WidgetGroup] Merge pre-commit rollback save " +
+                                $"failed source={sourceWidgetId} " +
+                                $"target={targetWidgetId}: {rollbackSaveException}");
+                        }
+                    }
+                    try
+                    {
+                        SynchronizeLoadedSurfaceDefinitions();
+                    }
+                    catch (Exception reconcileError)
+                    {
+                        App.Log(
+                            $"[WidgetGroup] Merge pre-commit host " +
+                            $"reconciliation failed source={sourceWidgetId} " +
+                            $"target={targetWidgetId}: {reconcileError}");
+                    }
+                    App.Log(
+                        $"[WidgetGroup] Merge candidate rolled back before " +
+                        $"topology save source={sourceWidgetId} target={targetWidgetId}: {ex}");
+                    return false;
+                }
+
+                bool rollbackSaved = false;
                 try
                 {
-                    await SaveWidgetGroupSettingsCheckedAsync();
+                    rollbackSaved = await WidgetGroupPersistedTopologyRecovery
+                        .TryRestorePreviousAsync(
+                             () => settings.WidgetLayout.WidgetGroups = groupSnapshot,
+                             () => WidgetGroupFailureProbe.Consume("merge-rollback-save")
+                                 ? Task.FromResult(false)
+                                 : _settingsService.SaveCheckedAsync(
+                                     notifySubscribers: false),
+                            () => settings.WidgetLayout.WidgetGroups = committedGroups);
                 }
                 catch (Exception rollbackSaveException)
                 {
                     App.Log(
-                        $"[WidgetGroup] Merge rollback save failed " +
+                        $"[WidgetGroup] Merge rollback save failed; " +
+                        $"retaining committed topology " +
                         $"source={sourceWidgetId} target={targetWidgetId}: " +
                         rollbackSaveException);
                 }
+                if (rollbackSaved)
+                {
+                    try
+                    {
+                        SynchronizeLoadedSurfaceDefinitions();
+                    }
+                    catch (Exception reconcileError)
+                    {
+                        App.Log(
+                            $"[WidgetGroup] Merge rollback host reconciliation " +
+                            $"failed source={sourceWidgetId} " +
+                            $"target={targetWidgetId}: {reconcileError}");
+                    }
+                    App.Log(
+                        $"[WidgetGroup] Merge promotion failed after durable rollback " +
+                        $"source={sourceWidgetId} target={targetWidgetId}: {ex}");
+                    return false;
+                }
+
                 App.Log(
-                    $"[WidgetGroup] Merge rolled back source={sourceWidgetId} " +
-                    $"target={targetWidgetId}: {ex}");
-                return false;
+                    $"[WidgetGroup] Merge rollback could not be persisted; " +
+                    $"recovering committed topology " +
+                    $"source={sourceWidgetId} target={targetWidgetId}: {ex}");
+                if (!await TryRecoverCommittedMergeAfterRollbackFailureAsync(
+                        mergedGroup,
+                        sourceGroup,
+                        combinedMembers,
+                        activeTargetId,
+                        preserveRaisedLayer))
+                {
+                    App.Log(
+                        $"[WidgetGroup] Merge committed topology is unavailable " +
+                        $"source={sourceWidgetId} target={targetWidgetId}");
+                    return false;
+                }
+                App.Log(
+                    $"[WidgetGroup] Merge recovered committed topology " +
+                    $"source={sourceWidgetId} target={targetWidgetId}");
             }
 
             ApplyGroupLayoutToMembers(mergedGroup);
@@ -925,6 +1045,187 @@ public sealed partial class WidgetManager
         {
             _widgetGroupGate.Release();
         }
+    }
+
+    private async Task<bool> TryRecoverCommittedMergeAfterRollbackFailureAsync(
+        WidgetGroupConfig committedGroup,
+        WidgetGroupConfig? sourceGroup,
+        IReadOnlyList<string> memberIds,
+        string activeTargetId,
+        bool preserveRaisedLayer)
+    {
+        WidgetSurfaceDefinition definition = CreateSurfaceDefinition(committedGroup);
+        IDesktopWidgetWindow? survivingTarget =
+            WidgetGroupFailureProbe.Consume("merge-recovery-target-unavailable")
+                ? null
+                : GetLegacyLoadedWindow(activeTargetId);
+        if (survivingTarget is not null)
+        {
+            try
+            {
+                WidgetGroupPersistedTopologyRecovery.ReconcileCommittedMergeClaims(
+                    _widgetSurfaces,
+                    definition,
+                    survivingTarget,
+                    sourceGroup?.Id,
+                    sourceGroup?.SurfaceId);
+                RemoveFileWidgetSessionsForHost(survivingTarget);
+                App.Log(
+                    $"[WidgetGroup] Committed merge adopted surviving target " +
+                    $"group={committedGroup.Id} hwnd=0x{survivingTarget.WindowHandle.ToInt64():X}");
+                return true;
+            }
+            catch (Exception reconciliationError)
+            {
+                App.Log(
+                    $"[WidgetGroup] Committed merge target reconciliation failed " +
+                    $"group={committedGroup.Id}: {reconciliationError}");
+            }
+        }
+
+        if (committedGroup.IsVisible)
+        {
+            try
+            {
+                WidgetGroupFailureProbe.ThrowIfRequested("merge-recovery-promotion");
+                IReadOnlyList<WidgetSurfaceClaimTransfer<IDesktopWidgetWindow>> claims =
+                    _widgetSurfaces.CaptureGroupClaimTransfers(
+                        definition,
+                        sourceGroupId: sourceGroup?.Id,
+                        sourceSurfaceId: sourceGroup?.SurfaceId);
+                await PromoteGroupToUnifiedSurfaceHostAsync(
+                    committedGroup,
+                    preserveRaisedLayer: preserveRaisedLayer,
+                    expectedRetiringClaims: claims);
+                if (GetLegacyLoadedWindow(activeTargetId) is null)
+                    throw new InvalidOperationException(
+                        "Recovered group promotion did not retain an active host.");
+                App.Log($"[WidgetGroup] Committed merge re-created active host group={committedGroup.Id}");
+                return true;
+            }
+            catch (Exception promotionError)
+            {
+                App.Log(
+                    $"[WidgetGroup] Committed merge re-promotion failed " +
+                    $"group={committedGroup.Id}: {promotionError}");
+            }
+        }
+
+        return await QuarantineCommittedMergeAsync(
+            committedGroup, sourceGroup, memberIds, preserveRaisedLayer);
+    }
+
+    private async Task<bool> QuarantineCommittedMergeAsync(
+        WidgetGroupConfig committedGroup,
+        WidgetGroupConfig? sourceGroup,
+        IReadOnlyList<string> memberIds,
+        bool preserveRaisedLayer)
+    {
+        var affectedHosts = new HashSet<IDesktopWidgetWindow>(
+            ReferenceEqualityComparer.Instance);
+        foreach (string memberId in memberIds)
+        {
+            if (GetLegacyLoadedWindow(memberId) is { } loaded)
+                affectedHosts.Add(loaded);
+            if (_widgetSurfaces.TryGetByMember(memberId, out var session) &&
+                session is not null)
+                affectedHosts.Add(session.Host);
+        }
+
+        foreach (IDesktopWidgetWindow host in affectedHosts)
+        {
+            try
+            {
+                RetireSpecificLoadedWindowForGroup(
+                    host.Config.Id, host, keepConfigVisible: committedGroup.IsVisible);
+            }
+            catch (Exception retirementError)
+            {
+                App.Log(
+                    $"[WidgetGroup] Committed merge host quarantine failed " +
+                    $"group={committedGroup.Id}: {retirementError}");
+                try
+                {
+                    CloseFailedGroupReplacement(host.Config.Id, host);
+                }
+                catch (Exception cleanupError)
+                {
+                    App.Log(
+                        $"[WidgetGroup] Committed merge fallback close failed " +
+                        $"group={committedGroup.Id}: {cleanupError}");
+                }
+            }
+            try
+            {
+                _widgetSurfaces.UnregisterHost(host);
+            }
+            catch (Exception quarantineError)
+            {
+                App.Log(
+                    $"[WidgetGroup] Committed merge host unregister failed " +
+                    $"group={committedGroup.Id}: {quarantineError}");
+            }
+        }
+
+        foreach (string memberId in memberIds)
+        {
+            if (_widgetSurfaces.TryGetByMember(memberId, out var residual) &&
+                residual is not null)
+            {
+                try
+                {
+                    _widgetSurfaces.UnregisterHost(residual.Host);
+                }
+                catch (Exception quarantineError)
+                {
+                    App.Log(
+                        $"[WidgetGroup] Committed merge residual unregister " +
+                        $"failed group={committedGroup.Id}: {quarantineError}");
+                }
+            }
+        }
+
+        if (sourceGroup is not null &&
+            !string.Equals(sourceGroup.SurfaceId, committedGroup.SurfaceId,
+                StringComparison.Ordinal))
+            _widgetSurfaceSwitchGates.Remove(sourceGroup.SurfaceId);
+
+        if (committedGroup.IsVisible)
+        {
+            try
+            {
+                WidgetGroupFailureProbe.ThrowIfRequested("merge-recovery-rebuild");
+                if (await ShowGroupActiveWindowAsync(
+                        committedGroup, preserveRaisedLayer) is not null)
+                {
+                    App.Log(
+                        $"[WidgetGroup] Committed merge rebuilt after quarantine " +
+                        $"group={committedGroup.Id}");
+                    return true;
+                }
+            }
+            catch (Exception rebuildError)
+            {
+                App.Log(
+                    $"[WidgetGroup] Committed merge remains without a live host " +
+                    $"group={committedGroup.Id}: {rebuildError}");
+            }
+        }
+
+        ApplyGroupLayoutToMembers(committedGroup);
+        NormalizeCapsuleIdentityForGroup(committedGroup);
+        try
+        {
+            RaiseWidgetGroupsChanged();
+            ApplyCapsuleArrangementIfChanged(force: true);
+        }
+        catch (Exception notificationError)
+        {
+            App.Log(
+                $"[WidgetGroup] Committed merge quarantine notification failed " +
+                $"group={committedGroup.Id}: {notificationError}");
+        }
+        return !committedGroup.IsVisible;
     }
 
     public async Task<bool> SwitchWidgetGroupMemberAsync(
@@ -985,6 +1286,20 @@ public sealed partial class WidgetManager
             if (group is null ||
                 !string.Equals(group.SurfaceId, request.GroupId, StringComparison.Ordinal))
             {
+                return false;
+            }
+
+            if (!group.IsVisible &&
+                WidgetGroupSwitchRequest.IsRelativeGestureOrigin(origin))
+            {
+                // A relative wheel/keyboard step that outlived a stow must
+                // not commit a silent flip on the hidden surface; it would
+                // replay as one extra page flip when the group is revealed
+                // again (feedback 387).
+                App.LogVerbose(
+                    $"[WidgetGroup] Dropped post-stow gesture switch " +
+                    $"surface={group.SurfaceId} target={targetWidgetId} " +
+                    $"origin={origin}");
                 return false;
             }
 
@@ -1090,6 +1405,12 @@ public sealed partial class WidgetManager
         ContentWidgetWindowFactory contentWindowFactory,
         long switchStartedTimestamp)
     {
+        if (!_contentWindowRegistration.CanRebind(targetConfig.Id, persistentWindow))
+        {
+            App.Log($"[WidgetGroup] In-place switch rejected: content registration missing or conflicting id={targetConfig.Id}");
+            return false;
+        }
+
         IWidgetContent? cachedContent =
             persistentWindow.TakeCachedGroupContent(targetConfig.Id);
         var timeline = new WidgetGroupSwitchTimeline(
@@ -1105,10 +1426,15 @@ public sealed partial class WidgetManager
         using var loadingDelayCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 request.CancellationToken);
-        Task loadingDelay = ShowGroupMemberLoadingAfterDelayAsync(
-            persistentWindow,
-            targetConfig.Id,
-            loadingDelayCancellation.Token);
+        // A drag-hover switch already announced itself through the dwell, and
+        // the ring lives inside the tab header: widening a frozen strip
+        // mid-drag would move the very targets the user is aiming at.
+        Task loadingDelay = request.Origin == WidgetGroupSwitchOrigin.DragHover
+            ? Task.CompletedTask
+            : ShowGroupMemberLoadingAfterDelayAsync(
+                persistentWindow,
+                targetConfig.Id,
+                loadingDelayCancellation.Token);
         ContentWidgetWindow.ContentWidgetSwitchPreparation? preparedContent;
         try
         {
@@ -1152,6 +1478,12 @@ public sealed partial class WidgetManager
         {
             return false;
         }
+        if (!_contentWindowRegistration.CanRebind(targetConfig.Id, persistentWindow))
+        {
+            transition.Rollback();
+            App.Log($"[WidgetGroup] In-place switch rejected after preparation: content registration changed id={targetConfig.Id}");
+            return false;
+        }
         LogWidgetSurfaceEvidence(group, "transition");
 
         if (group.IsVisible && persistentWindow.Visible)
@@ -1160,8 +1492,13 @@ public sealed partial class WidgetManager
             // transaction must settle atomically. A later navigation request
             // waits on the surface gate; it must not cancel us between the
             // visual swap and the group identity commit.
+            int projectedItemCount =
+                GetWidgetGroupFirstFrameProjectedItemCount(plan.Content);
+            TimeSpan firstFrameBudget =
+                WidgetGroupFirstFrameBudgetPolicy.ResolveBudget(
+                    projectedItemCount);
             using var frameTimeout = new CancellationTokenSource();
-            frameTimeout.CancelAfter(WidgetGroupFirstFrameTimeout);
+            frameTimeout.CancelAfter(firstFrameBudget);
             try
             {
                 await persistentWindow.WaitForFirstPresentedFrameAsync(
@@ -1175,6 +1512,8 @@ public sealed partial class WidgetManager
                     $"[WidgetGroup] In-place first-frame wait timed out; " +
                     $"keeping previous member group={group.Id} " +
                     $"target={targetConfig.Id} previous={previousActiveId} " +
+                    $"projectedItems={projectedItemCount} " +
+                    $"budgetMs={(long)firstFrameBudget.TotalMilliseconds} " +
                     timeline.Describe(sinceLastActive: null));
                 transition.Rollback();
                 LogWidgetSurfaceEvidence(group, "timeout-rollback");
@@ -1237,14 +1576,7 @@ public sealed partial class WidgetManager
             throw;
         }
 
-        foreach (string registeredId in _contentWidgets
-                     .Where(entry => ReferenceEquals(entry.Value, persistentWindow))
-                     .Select(entry => entry.Key)
-                     .ToList())
-        {
-            _contentWidgets.Remove(registeredId);
-        }
-        _contentWidgets[targetConfig.Id] = persistentWindow;
+        _contentWindowRegistration.Rebind(targetConfig.Id, persistentWindow);
         RestoreWidgetGroupTransientState(targetConfig.Id);
         SaveWidgetGroupActiveMemberDeferred();
 
@@ -1284,6 +1616,31 @@ public sealed partial class WidgetManager
         return true;
     }
 
+    /// <summary>
+    /// Feedback 497: the first-frame gate used one fixed 900ms budget, which
+    /// a file-heavy group member (thousands of tiles to lay out before the
+    /// first composition frames) can never meet — the switch then rolled back
+    /// deterministically and the member was unreachable. The budget now
+    /// scales with the incoming member's projected item count; see
+    /// <see cref="WidgetGroupFirstFrameBudgetPolicy"/> for the curve and its
+    /// ceiling. The rollback itself stays: it is what prevents committing the
+    /// group identity onto a member that never presented a frame.
+    /// </summary>
+    private static int GetWidgetGroupFirstFrameProjectedItemCount(
+        IWidgetContent? content)
+    {
+        return content is FileWidgetContentAdapter fileSurface
+            ? fileSurface.ViewModel.VisibleItems.Count()
+            : 0;
+    }
+
+    private static TimeSpan ResolveWidgetGroupFirstFrameBudget(
+        IWidgetContent? incomingContent)
+    {
+        return WidgetGroupFirstFrameBudgetPolicy.ResolveBudget(
+            GetWidgetGroupFirstFrameProjectedItemCount(incomingContent));
+    }
+
     private static async Task ShowGroupMemberLoadingAfterDelayAsync(
         ContentWidgetWindow window,
         string widgetId,
@@ -1308,12 +1665,16 @@ public sealed partial class WidgetManager
                     detachedPosition));
         }
 
+        // Hand-edited settings can leave a blank SurfaceId; the switch-gate
+        // pool rejects those, so repair the topology before any lookup.
+        WidgetGroupSettings.Normalize(_settingsService.Settings);
         WidgetGroupConfig? pendingGroup = WidgetGroupSettings.FindByMember(
             _settingsService.Settings,
             widgetId);
         if (pendingGroup is not null)
         {
             _widgetGroupSwitchRequests.Cancel(pendingGroup.SurfaceId);
+            InterruptWidgetGroupInteraction(pendingGroup);
         }
 
         await _widgetGroupGate.WaitAsync();
@@ -1328,8 +1689,14 @@ public sealed partial class WidgetManager
                 return false;
             }
 
+            using IDisposable surfaceSwitch =
+                await _widgetSurfaceSwitchGates.AcquireManyAsync(
+                    [group.SurfaceId]);
+
             var detachCommitStopwatch = System.Diagnostics.Stopwatch.StartNew();
             string previousActiveId = group.ActiveMemberId;
+            IDesktopWidgetWindow? originalHost =
+                GetLoadedWindow(previousActiveId);
             bool preserveRaisedLayer =
                 ShouldPreserveRaisedWidgetLayer(previousActiveId);
             bool raiseTransitionWindows =
@@ -1358,6 +1725,19 @@ public sealed partial class WidgetManager
                 group,
                 Math.Max(1, removedIndex + 1),
                 detachedPosition);
+            if (detachedPosition is { } dropPoint)
+            {
+                // Drag-out is a user placement (spec 5.4): the drop point —
+                // not the inherited group home — decides the new standalone
+                // surface's home display.
+                CommitUserPlacement(
+                    removedConfig,
+                    new Windows.Graphics.RectInt32(dropPoint.X, dropPoint.Y, 1, 1),
+                    new Windows.Graphics.RectInt32(dropPoint.X, dropPoint.Y, 1, 1),
+                    WidgetPlacementSource.Drag,
+                    captureIntent: false);
+            }
+
             removedConfig.IsVisible = revealStandalone && group.IsVisible;
 
             WidgetGroupConfig? survivingGroup = group.MemberIds.Count >= 2 ? group : null;
@@ -1419,6 +1799,12 @@ public sealed partial class WidgetManager
                 return false;
             }
 
+            WidgetGroupMutationSnapshot committedSnapshot =
+                WidgetGroupMutationSnapshot.Capture(
+                    this,
+                    group,
+                    additionalMemberIds: [removedConfig.Id]);
+
             WidgetGroupDetachSurfaceReuseResult reuseResult =
                 await TryCompleteDetachedActiveSurfaceReuseAsync(
                     group,
@@ -1426,6 +1812,7 @@ public sealed partial class WidgetManager
                     removedConfig,
                     reusableDetachedHost,
                     rollbackSnapshot,
+                    committedSnapshot,
                     raiseTransitionWindows);
             if (reuseResult == WidgetGroupDetachSurfaceReuseResult.Failed)
             {
@@ -1436,37 +1823,81 @@ public sealed partial class WidgetManager
                 reuseResult == WidgetGroupDetachSurfaceReuseResult.Completed;
             if (!reusedSurface)
             {
-                foreach (string memberId in previousMembers)
+                var created = new List<(
+                    string MemberId,
+                    IDesktopWidgetWindow Host)>();
+                try
                 {
-                    RetireLoadedWindowForGroup(
-                        memberId,
-                        keepConfigVisible: FindConfig(memberId)?.IsVisible == true);
-                }
-
-                if (survivingGroup is not null && survivingGroup.IsVisible)
-                {
-                    await ShowGroupActiveWindowAsync(
-                        survivingGroup,
-                        raiseTransitionWindows);
-                }
-                else if (survivingGroup is null && group.IsVisible)
-                {
-                    foreach (string remainingId in group.MemberIds)
+                    foreach (string memberId in previousMembers)
                     {
-                        if (FindConfig(remainingId) is { IsVisible: true } remainingConfig)
+                        RetireLoadedWindowForGroup(
+                            memberId,
+                            keepConfigVisible: FindConfig(memberId)?.IsVisible == true);
+                    }
+
+                    // Closed may arrive after the replacement starts creating.
+                    // The old host has been retired explicitly; release its
+                    // claim before standalone members take their aliases.
+                    _widgetSurfaces.RemoveSurface(group.SurfaceId);
+
+                    if (survivingGroup is not null && survivingGroup.IsVisible)
+                    {
+                        IDesktopWidgetWindow replacement =
+                            await ShowGroupActiveWindowAsync(
+                                survivingGroup,
+                                raiseTransitionWindows) ??
+                            throw new InvalidOperationException(
+                                "The surviving group host could not be created.");
+                        created.Add((survivingGroup.ActiveMemberId, replacement));
+                        await WaitForGroupReplacementFirstFrameAsync(replacement);
+                    }
+                    else if (survivingGroup is null && group.IsVisible)
+                    {
+                        foreach (string remainingId in group.MemberIds)
                         {
-                            await ShowStandaloneWindowAsync(
-                                remainingConfig,
-                                raiseTransitionWindows);
+                            if (FindConfig(remainingId) is { IsVisible: true } remainingConfig)
+                            {
+                                IDesktopWidgetWindow replacement =
+                                    await ShowStandaloneWindowAsync(
+                                        remainingConfig,
+                                        raiseTransitionWindows);
+                                created.Add((remainingId, replacement));
+                                await WaitForGroupReplacementFirstFrameAsync(replacement);
+                            }
                         }
                     }
-                }
 
-                if (removedConfig.IsVisible)
+                    if (removedConfig.IsVisible)
+                    {
+                        IDesktopWidgetWindow replacement =
+                            await ShowStandaloneWindowAsync(
+                                removedConfig,
+                                raiseTransitionWindows);
+                        created.Add((removedConfig.Id, replacement));
+                        await WaitForGroupReplacementFirstFrameAsync(replacement);
+                    }
+                }
+                catch (Exception replacementError)
                 {
-                    await ShowStandaloneWindowAsync(
-                        removedConfig,
-                        raiseTransitionWindows);
+                    try
+                    {
+                        await RecoverFailedGroupReplacementAsync(
+                            group,
+                            rollbackSnapshot,
+                            committedSnapshot,
+                            created,
+                            originalHost,
+                            raiseTransitionWindows,
+                            "detach",
+                            replacementError);
+                    }
+                    catch (Exception recoveryError)
+                    {
+                        App.Log(
+                            $"[WidgetGroup] Detach recovery failed " +
+                            $"group={group.Id}: {recoveryError}");
+                    }
+                    return false;
                 }
             }
 
@@ -1499,17 +1930,22 @@ public sealed partial class WidgetManager
                 () => DissolveWidgetGroupContainingAsync(widgetId));
         }
 
+        // Hand-edited settings can leave a blank SurfaceId; the switch-gate
+        // pool rejects those, so repair the topology before any lookup.
+        WidgetGroupSettings.Normalize(_settingsService.Settings);
         WidgetGroupConfig? pendingGroup = WidgetGroupSettings.FindByMember(
             _settingsService.Settings,
             widgetId);
         if (pendingGroup is not null)
         {
             _widgetGroupSwitchRequests.Cancel(pendingGroup.SurfaceId);
+            InterruptWidgetGroupInteraction(pendingGroup);
         }
 
         await _widgetGroupGate.WaitAsync();
         try
         {
+            WidgetGroupSettings.Normalize(_settingsService.Settings);
             WidgetGroupConfig? group = WidgetGroupSettings.FindByMember(
                 _settingsService.Settings,
                 widgetId);
@@ -1518,8 +1954,14 @@ public sealed partial class WidgetManager
                 return false;
             }
 
+            using IDisposable surfaceSwitch =
+                await _widgetSurfaceSwitchGates.AcquireManyAsync(
+                    [group.SurfaceId]);
+
             bool preserveRaisedLayer =
                 ShouldPreserveRaisedWidgetLayer(group.ActiveMemberId);
+            IDesktopWidgetWindow? originalHost =
+                GetLoadedWindow(group.ActiveMemberId);
 
             List<WidgetConfig> members = group.MemberIds
                 .Select(FindConfig)
@@ -1561,16 +2003,53 @@ public sealed partial class WidgetManager
                 return false;
             }
 
-            _widgetSurfaceSwitchGates.Remove(group.SurfaceId);
+            WidgetGroupMutationSnapshot committedSnapshot =
+                WidgetGroupMutationSnapshot.Capture(this, group);
 
-            foreach (WidgetConfig member in members)
+            var created = new List<(
+                string MemberId,
+                IDesktopWidgetWindow Host)>();
+            try
             {
-                RetireLoadedWindowForGroup(member.Id, keepConfigVisible: member.IsVisible);
+                foreach (WidgetConfig member in members)
+                {
+                    RetireLoadedWindowForGroup(
+                        member.Id,
+                        keepConfigVisible: member.IsVisible);
+                }
+                _widgetSurfaces.RemoveSurface(group.SurfaceId);
+                foreach (WidgetConfig member in members.Where(member => member.IsVisible))
+                {
+                    IDesktopWidgetWindow replacement =
+                        await ShowStandaloneWindowAsync(member);
+                    created.Add((member.Id, replacement));
+                    await WaitForGroupReplacementFirstFrameAsync(replacement);
+                }
             }
-            foreach (WidgetConfig member in members.Where(member => member.IsVisible))
+            catch (Exception replacementError)
             {
-                await ShowStandaloneWindowAsync(member);
+                try
+                {
+                    await RecoverFailedGroupReplacementAsync(
+                        group,
+                        rollbackSnapshot,
+                        committedSnapshot,
+                        created,
+                        originalHost,
+                        preserveRaisedLayer,
+                        "dissolve",
+                        replacementError);
+                }
+                catch (Exception recoveryError)
+                {
+                    App.Log(
+                        $"[WidgetGroup] Dissolve recovery failed " +
+                        $"group={group.Id}: {recoveryError}");
+                }
+                return false;
             }
+
+            _widgetSurfaceSwitchGates.Remove(group.SurfaceId);
 
             if (preserveRaisedLayer)
             {
@@ -1606,6 +2085,7 @@ public sealed partial class WidgetManager
         await _widgetGroupGate.WaitAsync();
         try
         {
+            WidgetGroupSettings.Normalize(_settingsService.Settings);
             WidgetGroupConfig? group = WidgetGroupSettings.FindByMember(
                 _settingsService.Settings,
                 sourceWidgetId);
@@ -1618,6 +2098,10 @@ public sealed partial class WidgetManager
             {
                 return false;
             }
+
+            using IDisposable surfaceSwitch =
+                await _widgetSurfaceSwitchGates.AcquireManyAsync(
+                    [group.SurfaceId]);
 
             // Move the source into the target's original slot. This makes
             // adjacent keyboard/menu moves symmetric in both directions and
@@ -1726,6 +2210,7 @@ public sealed partial class WidgetManager
         if (!isVisible)
         {
             _widgetGroupSwitchRequests.Cancel(group.SurfaceId);
+            InterruptWidgetGroupInteraction(group);
         }
 
         group.IsVisible = isVisible;
@@ -1806,16 +2291,40 @@ public sealed partial class WidgetManager
         }
 
         string? targetId = string.Equals(
-            _groupDragSourceId,
-            sourceWidgetId,
-            StringComparison.Ordinal) &&
+                _groupDragSourceId,
+                sourceWidgetId,
+                StringComparison.Ordinal) &&
             _groupDragDropReady &&
             IsGroupDragTargetUnderCursor()
             ? _groupDragTargetId
             : null;
         ClearGroupDragPreview();
-        return targetId is not null &&
-               await MergeWidgetsAsync(sourceWidgetId, targetId);
+        if (targetId is not null &&
+            await MergeWidgetsAsync(sourceWidgetId, targetId))
+        {
+            // The merge created a new group surface: commit its landing once
+            // so the entry lands under the group surface id as authoritative
+            // (spec 5.4 合并建组 entry).
+            if (FindConfig(sourceWidgetId) is { } merged &&
+                GetLoadedWindow(sourceWidgetId) is { } hostWindow &&
+                Win32Helper.GetWindowRect(hostWindow.WindowHandle, out Win32Helper.RECT hostRect))
+            {
+                CommitUserPlacement(
+                    merged,
+                    new Windows.Graphics.RectInt32(
+                        hostRect.Left, hostRect.Top,
+                        hostRect.Right - hostRect.Left, hostRect.Bottom - hostRect.Top),
+                    new Windows.Graphics.RectInt32(
+                        hostRect.Left, hostRect.Top,
+                        hostRect.Right - hostRect.Left, hostRect.Bottom - hostRect.Top),
+                    WidgetPlacementSource.GroupMerge,
+                    captureIntent: false);
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     public void CancelWidgetGroupDrag(string sourceWidgetId)
@@ -1868,7 +2377,11 @@ public sealed partial class WidgetManager
             PositionMarginY = source.PositionMarginY,
             PositionMonitorKey = source.PositionMonitorKey,
             PositionMonitorDeviceName = source.PositionMonitorDeviceName,
+            PositionMonitorStableId = source.PositionMonitorStableId,
             PositionMonitorWasPrimary = source.PositionMonitorWasPrimary,
+            ScreenBindingMode = source.ScreenBindingMode,
+            BoundScreenId = source.BoundScreenId,
+            BoundScreenLabel = source.BoundScreenLabel,
             BoundsCoordinateVersion = source.BoundsCoordinateVersion,
             Width = source.Width,
             Height = source.Height,
@@ -1895,7 +2408,11 @@ public sealed partial class WidgetManager
         group.PositionMarginY = member.PositionMarginY;
         group.PositionMonitorKey = member.PositionMonitorKey;
         group.PositionMonitorDeviceName = member.PositionMonitorDeviceName;
+        group.PositionMonitorStableId = member.PositionMonitorStableId;
         group.PositionMonitorWasPrimary = member.PositionMonitorWasPrimary;
+        group.ScreenBindingMode = member.ScreenBindingMode;
+        group.BoundScreenId = member.BoundScreenId;
+        group.BoundScreenLabel = member.BoundScreenLabel;
         group.BoundsCoordinateVersion = member.BoundsCoordinateVersion;
         group.Width = member.Width;
         group.Height = member.Height;
@@ -1926,7 +2443,11 @@ public sealed partial class WidgetManager
         member.PositionMarginY = group.PositionMarginY;
         member.PositionMonitorKey = group.PositionMonitorKey;
         member.PositionMonitorDeviceName = group.PositionMonitorDeviceName;
+        member.PositionMonitorStableId = group.PositionMonitorStableId;
         member.PositionMonitorWasPrimary = group.PositionMonitorWasPrimary;
+        member.ScreenBindingMode = group.ScreenBindingMode;
+        member.BoundScreenId = group.BoundScreenId;
+        member.BoundScreenLabel = group.BoundScreenLabel;
         member.BoundsCoordinateVersion = group.BoundsCoordinateVersion;
         member.Width = group.Width;
         member.Height = group.Height;
@@ -1958,6 +2479,7 @@ public sealed partial class WidgetManager
                 PositionMarginY = source.PositionMarginY,
                 PositionMonitorKey = source.PositionMonitorKey,
                 PositionMonitorDeviceName = source.PositionMonitorDeviceName,
+                PositionMonitorStableId = source.PositionMonitorStableId,
                 PositionMonitorWasPrimary = source.PositionMonitorWasPrimary,
                 BoundsCoordinateVersion = source.BoundsCoordinateVersion
             };
@@ -1985,7 +2507,13 @@ public sealed partial class WidgetManager
         member.PositionMarginY = 0;
         member.PositionMonitorKey = null;
         member.PositionMonitorDeviceName = null;
+        member.PositionMonitorStableId = null;
         member.PositionMonitorWasPrimary = null;
+        // Detaching inherits the surface binding: the member stays on the
+        // monitor the group was bound to, as a standalone surface.
+        member.ScreenBindingMode = group.ScreenBindingMode;
+        member.BoundScreenId = group.BoundScreenId;
+        member.BoundScreenLabel = group.BoundScreenLabel;
         member.CompactPlacement = null;
     }
 
@@ -1996,6 +2524,7 @@ public sealed partial class WidgetManager
             WidgetConfig removedConfig,
             ContentWidgetWindow? detachedHost,
             WidgetGroupMutationSnapshot rollbackSnapshot,
+            WidgetGroupMutationSnapshot committedSnapshot,
             bool showRaised)
     {
         if (detachedHost is null ||
@@ -2025,6 +2554,8 @@ public sealed partial class WidgetManager
 
             if (survivingGroup is { IsVisible: true })
             {
+                WidgetGroupFailureProbe.ThrowIfRequested(
+                    "reused-detach-create");
                 replacementHost = await ShowGroupActiveWindowAsync(
                     survivingGroup,
                     showRaised) ??
@@ -2041,6 +2572,8 @@ public sealed partial class WidgetManager
                         $"The remaining widget '{remainingId}' is unavailable.");
                 if (remainingConfig.IsVisible)
                 {
+                    WidgetGroupFailureProbe.ThrowIfRequested(
+                        "reused-detach-create");
                     replacementHost = await ShowStandaloneWindowAsync(
                         remainingConfig,
                         showRaised);
@@ -2049,8 +2582,11 @@ public sealed partial class WidgetManager
 
             if (replacementHost is ContentWidgetWindow replacementContent)
             {
+                WidgetGroupFailureProbe.ThrowIfRequested(
+                    "reused-detach-first-frame");
                 using var frameTimeout = new CancellationTokenSource(
-                    WidgetGroupFirstFrameTimeout);
+                    ResolveWidgetGroupFirstFrameBudget(
+                        replacementContent.CurrentContent));
                 await replacementContent.WaitForFirstPresentedFrameAsync(
                     frameTimeout.Token);
             }
@@ -2098,26 +2634,68 @@ public sealed partial class WidgetManager
                 $"[WidgetGroup] Detach Surface reuse failed; rolling back " +
                 $"group={originalGroup.Id} member={removedConfig.Id}: {ex}");
 
-            if (replacementHost is not null &&
-                !ReferenceEquals(replacementHost, detachedHost))
-            {
-                RetireSpecificLoadedWindowForGroup(
-                    replacementHost.Config.Id,
-                    replacementHost,
-                    keepConfigVisible: true);
-            }
-
-            rollbackSnapshot.Restore(this);
             bool rollbackSaved = false;
             try
             {
-                rollbackSaved = await _settingsService.SaveCheckedAsync();
+                rollbackSaved = await WidgetGroupPersistedTopologyRecovery
+                    .TryRestorePreviousAsync(
+                        () => rollbackSnapshot.Restore(this),
+                        () => WidgetGroupFailureProbe.Consume(
+                            "reused-detach-rollback-save")
+                            ? Task.FromResult(false)
+                            : _settingsService.SaveCheckedAsync(
+                                notifySubscribers: false),
+                        () => committedSnapshot.Restore(this));
             }
             catch (Exception rollbackSaveException)
             {
                 App.Log(
                     $"[WidgetGroup] Detach Surface rollback save failed " +
                     $"group={originalGroup.Id}: {rollbackSaveException}");
+            }
+
+            if (!rollbackSaved)
+            {
+                await ReconcileCommittedDetachedSurfaceAsync(
+                    originalGroup,
+                    survivingGroup,
+                    removedConfig,
+                    detachedHost,
+                    replacementHost,
+                    showRaised);
+                return WidgetGroupDetachSurfaceReuseResult.Failed;
+            }
+
+            if (replacementHost is not null &&
+                !ReferenceEquals(replacementHost, detachedHost))
+            {
+                try
+                {
+                    bool restoredVisibility = replacementHost.Config.IsVisible;
+                    RetireSpecificLoadedWindowForGroup(
+                        replacementHost.Config.Id,
+                        replacementHost,
+                        keepConfigVisible: restoredVisibility);
+                }
+                catch (Exception retirementError)
+                {
+                    App.Log(
+                        $"[WidgetGroup] Detach replacement retirement failed " +
+                        $"group={originalGroup.Id}: {retirementError}");
+                    try
+                    {
+                        CloseFailedGroupReplacement(
+                            replacementHost.Config.Id,
+                            replacementHost);
+                    }
+                    catch (Exception cleanupError)
+                    {
+                        App.Log(
+                            $"[WidgetGroup] Detach replacement cleanup failed " +
+                            $"group={originalGroup.Id}: {cleanupError}");
+                    }
+                }
+                _widgetSurfaces.UnregisterHost(replacementHost);
             }
 
             _widgetSurfaces.UnregisterHost(detachedHost);
@@ -2150,6 +2728,143 @@ public sealed partial class WidgetManager
         }
     }
 
+    private async Task ReconcileCommittedDetachedSurfaceAsync(
+        WidgetGroupConfig originalGroup,
+        WidgetGroupConfig? survivingGroup,
+        WidgetConfig removedConfig,
+        ContentWidgetWindow detachedHost,
+        IDesktopWidgetWindow? replacementHost,
+        bool showRaised)
+    {
+        App.Log(
+            $"[WidgetGroup] Detach rollback was not durable; keeping the " +
+            $"saved split group={originalGroup.Id} member={removedConfig.Id}");
+
+        try
+        {
+            WidgetGroupFailureProbe.ThrowIfRequested("detach-reconcile-registry");
+            if (_widgetSurfaces.TryGet(originalGroup.SurfaceId, out var original) &&
+                ReferenceEquals(original!.Host, detachedHost))
+            {
+                _widgetSurfaces.RemoveSurface(originalGroup.SurfaceId);
+            }
+
+            _widgetSurfaces.RegisterActive(
+                CreateSurfaceDefinition(removedConfig),
+                detachedHost);
+            RegisterStandaloneUnifiedFileSessionIfNeeded(
+                removedConfig,
+                detachedHost,
+                detachedHost.CurrentContent);
+        }
+        catch (Exception registryError)
+        {
+            App.Log(
+                $"[WidgetGroup] Saved detach Surface reconciliation failed " +
+                $"group={originalGroup.Id}: {registryError}");
+            // The saved split must not leave declarations that make every
+            // later group notification throw; quarantine the stale claims
+            // and retry the standalone declaration once.
+            if (WidgetGroupPersistedTopologyRecovery
+                .QuarantineCommittedDetachClaims(
+                    _widgetSurfaces,
+                    originalGroup.SurfaceId,
+                    removedConfig.Id,
+                    detachedHost,
+                    CreateSurfaceDefinition(removedConfig),
+                    App.Log))
+            {
+                RegisterStandaloneUnifiedFileSessionIfNeeded(
+                    removedConfig,
+                    detachedHost,
+                    detachedHost.CurrentContent);
+            }
+        }
+
+        try
+        {
+            if (survivingGroup is { IsVisible: true })
+            {
+                replacementHost ??= await ShowGroupActiveWindowAsync(
+                    survivingGroup,
+                    showRaised) ??
+                    throw new InvalidOperationException(
+                        "The saved surviving group host could not be created.");
+            }
+            else if (survivingGroup is null && originalGroup.IsVisible)
+            {
+                string? remainingId = originalGroup.MemberIds.FirstOrDefault();
+                if (remainingId is not null &&
+                    FindConfig(remainingId) is { IsVisible: true } remainingConfig)
+                {
+                    replacementHost ??= await ShowStandaloneWindowAsync(
+                        remainingConfig,
+                        showRaised);
+                }
+            }
+
+            if (replacementHost is not null)
+            {
+                await WaitForGroupReplacementFirstFrameAsync(replacementHost);
+            }
+        }
+        catch (Exception replacementError)
+        {
+            App.Log(
+                $"[WidgetGroup] Saved detach replacement is still unavailable " +
+                $"group={originalGroup.Id}: {replacementError}");
+        }
+
+        try
+        {
+            if (removedConfig.IsVisible)
+            {
+                bool boundsRestored =
+                    detachedHost.PrepareTrayShowAnimationForCurrentTopology();
+                if (_widgetsRaisedFromTray || showRaised)
+                {
+                    detachedHost.ShowPreparedRaisedFromTray(
+                        persistVisibility: false);
+                }
+                else
+                {
+                    detachedHost.ShowPreparedAtDesktopLayer(
+                        persistVisibility: false);
+                }
+                detachedHost.CompleteTrayShowWithoutAnimation();
+                if (showRaised && !_widgetsRaisedFromTray)
+                {
+                    detachedHost.AdoptManagerRaisedStateAfterPreparedShow();
+                }
+                App.LogVerbose(
+                    $"[WidgetGroup] Saved detached HWND restored to standalone " +
+                    $"boundsRestored={boundsRestored} member={removedConfig.Id}");
+            }
+            else
+            {
+                detachedHost.HideWindow();
+            }
+        }
+        catch (Exception presentationError)
+        {
+            App.Log(
+                $"[WidgetGroup] Saved detached HWND presentation failed " +
+                $"group={originalGroup.Id}: {presentationError}");
+        }
+
+        try
+        {
+            RaiseWidgetGroupsChanged();
+            ApplyCapsuleArrangementIfChanged(force: true);
+        }
+        catch (Exception reconcileError)
+        {
+            App.Log(
+                $"[WidgetGroup] Saved detach notification failed " +
+                $"group={originalGroup.Id}: {reconcileError}");
+        }
+    }
+
     private async Task<IDesktopWidgetWindow?> ShowGroupActiveWindowAsync(
         WidgetGroupConfig group,
         bool showRaised = false)
@@ -2167,25 +2882,196 @@ public sealed partial class WidgetManager
         WidgetConfig config,
         bool showRaised = false)
     {
+        IDesktopWidgetWindow? existingBeforeCreate =
+            GetLegacyLoadedWindow(config.Id);
         IDesktopWidgetWindow window = await CreateRegisteredWidgetFromConfigAsync(
             config,
             keepPreparedForAnimation: true);
-        if (_widgetsRaisedFromTray || showRaised)
+        try
         {
-            window.ShowPreparedRaisedFromTray(persistVisibility: false);
+            if (_widgetsRaisedFromTray || showRaised)
+            {
+                window.ShowPreparedRaisedFromTray(persistVisibility: false);
+            }
+            else
+            {
+                window.ShowPreparedAtDesktopLayer(persistVisibility: false);
+            }
+            window.CompleteTrayShowWithoutAnimation();
+            if (showRaised &&
+                !_widgetsRaisedFromTray &&
+                window is WidgetWindowBase widgetWindow)
+            {
+                widgetWindow.AdoptManagerRaisedStateAfterPreparedShow();
+            }
+            return window;
         }
-        else
+        catch
         {
-            window.ShowPreparedAtDesktopLayer(persistVisibility: false);
+            if (!ReferenceEquals(window, existingBeforeCreate))
+            {
+                CloseFailedGroupReplacement(config.Id, window);
+            }
+            throw;
         }
-        window.CompleteTrayShowWithoutAnimation();
-        if (showRaised &&
-            !_widgetsRaisedFromTray &&
-            window is WidgetWindowBase widgetWindow)
+    }
+
+    private async Task WaitForGroupReplacementFirstFrameAsync(
+        IDesktopWidgetWindow window)
+    {
+        if (window is not ContentWidgetWindow content)
         {
-            widgetWindow.AdoptManagerRaisedStateAfterPreparedShow();
+            return;
         }
-        return window;
+        if (!window.Visible)
+        {
+            throw new InvalidOperationException(
+                "A replacement content Surface did not become visible.");
+        }
+
+        using var frameTimeout = new CancellationTokenSource(
+            ResolveWidgetGroupFirstFrameBudget(content.CurrentContent));
+        await content.WaitForFirstPresentedFrameAsync(frameTimeout.Token);
+    }
+
+    private void CloseFailedGroupReplacement(
+        string widgetId,
+        IDesktopWidgetWindow window)
+    {
+        try
+        {
+            if (window is ContentWidgetWindow content)
+            {
+                _contentWindowRegistration.Unregister(content);
+            }
+            RemoveFileWidgetSessionsForHost(window);
+        }
+        catch (Exception ex)
+        {
+            App.Log(
+                $"[WidgetGroup] Failed to unregister replacement content " +
+                $"widget={widgetId}: {ex}");
+        }
+        try
+        {
+            UnregisterSurfaceHost(window);
+        }
+        catch (Exception ex)
+        {
+            App.Log(
+                $"[WidgetGroup] Failed to unregister replacement " +
+                $"widget={widgetId}: {ex}");
+        }
+
+        try
+        {
+            Win32Helper.ShowWindow(window.WindowHandle, Win32Helper.SW_HIDE);
+        }
+        catch (Exception ex)
+        {
+            App.Log(
+                $"[WidgetGroup] Failed to hide replacement " +
+                $"widget={widgetId}: {ex}");
+        }
+        CloseFailedCreatedWindow(widgetId, window, preserveVisibility: true);
+    }
+
+    private async Task RecoverFailedGroupReplacementAsync(
+        WidgetGroupConfig originalGroup,
+        WidgetGroupMutationSnapshot previous,
+        WidgetGroupMutationSnapshot committed,
+        IReadOnlyList<(string MemberId, IDesktopWidgetWindow Host)> created,
+        IDesktopWidgetWindow? originalHost,
+        bool showRaised,
+        string operation,
+        Exception failure)
+    {
+        App.Log(
+            $"[WidgetGroup] {operation} replacement failed after save; " +
+            $"attempting durable rollback group={originalGroup.Id}: {failure}");
+
+        bool rollbackSaved;
+        try
+        {
+            rollbackSaved = await WidgetGroupPersistedTopologyRecovery
+                .TryRestorePreviousAsync(
+                    () => previous.Restore(this),
+                    () => _settingsService.SaveCheckedAsync(
+                        notifySubscribers: false),
+                    () => committed.Restore(this));
+        }
+        catch (Exception rollbackError)
+        {
+            App.Log(
+                $"[WidgetGroup] {operation} rollback save failed; " +
+                $"retaining committed topology group={originalGroup.Id}: " +
+                rollbackError);
+            RaiseWidgetGroupsChanged();
+            ApplyCapsuleArrangementIfChanged(force: true);
+            return;
+        }
+
+        if (!rollbackSaved)
+        {
+            App.Log(
+                $"[WidgetGroup] {operation} rollback save was rejected; " +
+                $"retaining committed topology group={originalGroup.Id}");
+            RaiseWidgetGroupsChanged();
+            ApplyCapsuleArrangementIfChanged(force: true);
+            return;
+        }
+
+        var closed = new HashSet<IDesktopWidgetWindow>(
+            ReferenceEqualityComparer.Instance);
+        foreach ((string memberId, IDesktopWidgetWindow host) in created)
+        {
+            if (!ReferenceEquals(host, originalHost) && closed.Add(host))
+            {
+                CloseFailedGroupReplacement(memberId, host);
+            }
+        }
+
+        bool originalStillActive = originalHost is not null &&
+            originalHost.Visible &&
+            _widgetSurfaces.TryGet(originalGroup.SurfaceId, out var active) &&
+            ReferenceEquals(active!.Host, originalHost) &&
+            ReferenceEquals(
+                GetLegacyLoadedWindow(originalGroup.ActiveMemberId),
+                originalHost);
+        if (!originalStillActive)
+        {
+            if (originalHost is not null && closed.Add(originalHost))
+            {
+                CloseFailedGroupReplacement(
+                    originalGroup.ActiveMemberId,
+                    originalHost);
+            }
+            _widgetSurfaces.RemoveSurface(originalGroup.SurfaceId);
+
+            if (originalGroup.IsVisible)
+            {
+                try
+                {
+                    IDesktopWidgetWindow restored =
+                        await ShowGroupActiveWindowAsync(
+                            originalGroup,
+                            showRaised) ??
+                        throw new InvalidOperationException(
+                            "The original group host could not be recreated.");
+                    await WaitForGroupReplacementFirstFrameAsync(restored);
+                }
+                catch (Exception restoreError)
+                {
+                    App.Log(
+                        $"[WidgetGroup] {operation} settings were restored, " +
+                        $"but the original host could not be shown " +
+                        $"group={originalGroup.Id}: {restoreError}");
+                }
+            }
+        }
+
+        RaiseWidgetGroupsChanged();
+        ApplyCapsuleArrangementIfChanged(force: true);
     }
 
     private enum WidgetGroupDetachSurfaceReuseResult
@@ -2207,6 +3093,36 @@ public sealed partial class WidgetManager
         }
 
         return GetLegacyLoadedWindow(widgetId);
+    }
+
+    /// <summary>
+    /// Drops every optimistic group-gesture state (wheel cursor, hover
+    /// gesture, feedback animations) on the loaded windows of a surface whose
+    /// switch requests were just cancelled by a stow, member removal or
+    /// dissolve. Hiding a window under the pointer raises no PointerExited,
+    /// so this explicit notification is the only deterministic reset point
+    /// (feedback 387).
+    /// </summary>
+    private void InterruptWidgetGroupInteraction(WidgetGroupConfig group)
+    {
+        foreach (IDesktopWidgetWindow window in group.MemberIds
+                     .Select(GetLoadedWindow)
+                     .Where(window => window is not null)
+                     .Cast<IDesktopWidgetWindow>()
+                     .DistinctBy(window => window.WindowHandle))
+        {
+            try
+            {
+                (window as WidgetWindowBase)?
+                    .NotifyGroupInteractionInterrupted();
+            }
+            catch (Exception ex)
+            {
+                App.Log(
+                    $"[WidgetGroup] Failed to interrupt group interaction " +
+                    $"surface={group.SurfaceId}: {ex}");
+            }
+        }
     }
 
     private void RetireLoadedWindowForGroup(string widgetId, bool keepConfigVisible)
@@ -2232,20 +3148,26 @@ public sealed partial class WidgetManager
             window as IWidgetTransientStateContent ??
             (window as ContentWidgetWindow)?.CurrentContent
                 as IWidgetTransientStateContent;
-        CaptureWidgetGroupTransientState(widgetId, transientStateSource);
+        try
+        {
+            CaptureWidgetGroupTransientState(widgetId, transientStateSource);
+        }
+        catch (Exception ex)
+        {
+            // Capturing optional view state must not abort retirement after
+            // the new group topology has already been persisted.
+            App.Log(
+                $"[WidgetGroup] Transient state capture failed during " +
+                $"retirement id={widgetId}: {ex}");
+        }
 
         _suppressClosedVisibilityPersistence.Add(widgetId);
         try
         {
-            if (_fileWidgets.TryGetValue(widgetId, out var file) &&
-                ReferenceEquals(file.Host, window))
+            RemoveFileWidgetSessionsForHost(window);
+            if (window is ContentWidgetWindow content &&
+                _contentWindowRegistration.Unregister(content).Count > 0)
             {
-                _fileWidgets.Remove(widgetId);
-            }
-            if (_contentWidgets.TryGetValue(widgetId, out var content) &&
-                ReferenceEquals(content, window))
-            {
-                _contentWidgets.Remove(widgetId);
                 try
                 {
                     (content.CurrentContent as IDisposable)?.Dispose();
@@ -2255,7 +3177,6 @@ public sealed partial class WidgetManager
                 }
             }
 
-            _widgetWindowHandles.Remove(window.WindowHandle);
             window.Config.IsVisible = keepConfigVisible;
             try
             {
@@ -2434,6 +3355,19 @@ public sealed partial class WidgetManager
         IWidgetTransientStateContent? transientStateSource)
     {
         object? opaqueState = transientStateSource?.CaptureTransientState();
+        if (opaqueState is null &&
+            transientStateSource is IWidgetGroupContentCacheable)
+        {
+            // Diagnostic only, no behavior change: a cacheable member whose
+            // adapter is cold reports no transient state, and the capture
+            // policy silently drops null. Once ReleaseView becomes a
+            // cached-member eviction path, this line marks the state that
+            // would be lost across rematerialization.
+            App.LogVerbose(
+                "[WidgetGroup] Transient state capture returned null for a " +
+                $"cacheable content member={widgetId}");
+        }
+
         WidgetGroupTransientState? state = opaqueState is null
             ? null
             : new WidgetGroupTransientState(opaqueState);
@@ -2609,6 +3543,7 @@ public sealed partial class WidgetManager
         private readonly List<string> _capsuleBarOrder;
         private readonly Dictionary<string, WidgetCompactPlacement> _freePlacements;
         private readonly Dictionary<string, RectInt32> _capsuleBounds;
+        private readonly Dictionary<string, long> _inactiveSince;
 
         private WidgetGroupMutationSnapshot(
             WidgetGroupConfig group,
@@ -2616,7 +3551,8 @@ public sealed partial class WidgetManager
             List<MemberState> members,
             List<string> capsuleBarOrder,
             Dictionary<string, WidgetCompactPlacement> freePlacements,
-            Dictionary<string, RectInt32> capsuleBounds)
+            Dictionary<string, RectInt32> capsuleBounds,
+            Dictionary<string, long> inactiveSince)
         {
             _group = group;
             _groupIndex = groupIndex;
@@ -2626,14 +3562,18 @@ public sealed partial class WidgetManager
             _capsuleBarOrder = capsuleBarOrder;
             _freePlacements = freePlacements;
             _capsuleBounds = capsuleBounds;
+            _inactiveSince = inactiveSince;
         }
 
         public static WidgetGroupMutationSnapshot Capture(
             WidgetManager manager,
-            WidgetGroupConfig group)
+            WidgetGroupConfig group,
+            IEnumerable<string>? additionalMemberIds = null)
         {
             AppSettings settings = manager._settingsService.Settings;
             var members = group.MemberIds
+                .Concat(additionalMemberIds ?? Enumerable.Empty<string>())
+                .Distinct(StringComparer.Ordinal)
                 .Select(manager.FindConfig)
                 .Where(config => config is not null)
                 .Select(config => new MemberState(config!))
@@ -2651,6 +3591,10 @@ public sealed partial class WidgetManager
                 manager._lastCapsuleBarBounds.ToDictionary(
                     entry => entry.Key,
                     entry => entry.Value,
+                    StringComparer.Ordinal),
+                manager._widgetGroupMemberInactiveSince.ToDictionary(
+                    entry => entry.Key,
+                    entry => entry.Value,
                     StringComparer.Ordinal));
         }
 
@@ -2658,11 +3602,14 @@ public sealed partial class WidgetManager
         {
             AppSettings settings = manager._settingsService.Settings;
             settings.WidgetGroups.RemoveAll(group => ReferenceEquals(group, _group));
-            int insertIndex = Math.Clamp(
-                _groupIndex < 0 ? settings.WidgetGroups.Count : _groupIndex,
-                0,
-                settings.WidgetGroups.Count);
-            settings.WidgetGroups.Insert(insertIndex, _group);
+            if (_groupIndex >= 0)
+            {
+                int insertIndex = Math.Clamp(
+                    _groupIndex,
+                    0,
+                    settings.WidgetGroups.Count);
+                settings.WidgetGroups.Insert(insertIndex, _group);
+            }
 
             _group.MemberIds.Clear();
             _group.MemberIds.AddRange(_memberIds);
@@ -2687,6 +3634,12 @@ public sealed partial class WidgetManager
             {
                 manager._lastCapsuleBarBounds[bounds.Key] = bounds.Value;
             }
+
+            manager._widgetGroupMemberInactiveSince.Clear();
+            foreach (var entry in _inactiveSince)
+            {
+                manager._widgetGroupMemberInactiveSince[entry.Key] = entry.Value;
+            }
         }
 
         private sealed class MemberState
@@ -2699,6 +3652,7 @@ public sealed partial class WidgetManager
             private readonly double _positionMarginY;
             private readonly string? _positionMonitorKey;
             private readonly string? _positionMonitorDeviceName;
+            private readonly string? _positionMonitorStableId;
             private readonly bool? _positionMonitorWasPrimary;
             private readonly int _boundsCoordinateVersion;
             private readonly double _width;
@@ -2721,6 +3675,7 @@ public sealed partial class WidgetManager
                 _positionMarginY = config.PositionMarginY;
                 _positionMonitorKey = config.PositionMonitorKey;
                 _positionMonitorDeviceName = config.PositionMonitorDeviceName;
+                _positionMonitorStableId = config.PositionMonitorStableId;
                 _positionMonitorWasPrimary = config.PositionMonitorWasPrimary;
                 _boundsCoordinateVersion = config.BoundsCoordinateVersion;
                 _width = config.Width;
@@ -2745,6 +3700,7 @@ public sealed partial class WidgetManager
                 _config.PositionMarginY = _positionMarginY;
                 _config.PositionMonitorKey = _positionMonitorKey;
                 _config.PositionMonitorDeviceName = _positionMonitorDeviceName;
+                _config.PositionMonitorStableId = _positionMonitorStableId;
                 _config.PositionMonitorWasPrimary = _positionMonitorWasPrimary;
                 _config.BoundsCoordinateVersion = _boundsCoordinateVersion;
                 _config.Width = _width;

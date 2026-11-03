@@ -16,11 +16,8 @@ public sealed partial class FileSurfaceContent
         string? destinationFolderPath = null,
         IEnumerable<string>? sourcePathsOverride = null)
     {
-        DataPackageOperation requested = dataView.RequestedOperation;
         DataPackageOperation supported =
-            allowedOperations == DataPackageOperation.None
-                ? requested
-                : allowedOperations;
+            DeskBoxDragData.GetFileTransferOperations(dataView, allowedOperations);
         bool noOperationMetadata =
             supported == DataPackageOperation.None;
         string destination = destinationFolderPath ??
@@ -51,15 +48,50 @@ public sealed partial class FileSurfaceContent
                 StringComparison.Ordinal),
             canCopy: noOperationMetadata ||
                 supported.HasFlag(DataPackageOperation.Copy),
+            // A Link-only source never authorized relocation: treating Link
+            // as move capability would let a managed move delete a file the
+            // drag source did not sanction for deletion.
             canMove: noOperationMetadata ||
-                supported.HasFlag(DataPackageOperation.Move) ||
-                supported.HasFlag(DataPackageOperation.Link),
+                supported.HasFlag(DataPackageOperation.Move),
             altDown: Win32Helper.IsKeyPressed(VirtualKey.Menu),
             followWindows,
             sameVolume,
             // The source may not advertise Link even though an extracted
             // filesystem path is sufficient for DeskBox to create a shortcut.
             canLink: true);
+    }
+
+    internal static bool? ResolveMoveWhenMapped(bool mapped, FileDropIntent intent)
+    {
+        // An explicit Copy/Move intent must survive even when the widget has
+        // no managed folder yet (the import creates one on demand), so a Ctrl
+        // (copy) gesture never runs the default move and deletes the source
+        // against the user's intent. Only the unmodified Reference/Shortcut
+        // default defers to the settings-backed decision; a mapped surface
+        // always answers concretely.
+        return intent switch
+        {
+            FileDropIntent.Move => true,
+            FileDropIntent.Copy => false,
+            _ => mapped ? false : null
+        };
+    }
+
+    private bool HasShortcutDropDestination()
+    {
+        // Shortcut creation needs a concrete folder to write into. Without
+        // one the shortcut leg would create nothing and stay silent, so an
+        // unmapped widget keeps the settings-backed import instead.
+        return (ViewModel.CurrentFolderPath ?? ViewModel.MappedFolderPath) is
+            { Length: > 0 };
+    }
+
+    private FileDropIntent? ResolveShortcutIntentOverride(
+        FileDropIntent intent)
+    {
+        return intent == FileDropIntent.Shortcut && HasShortcutDropDestination()
+            ? FileDropIntent.Shortcut
+            : null;
     }
 
     private static DataPackageOperation ToDataPackageOperation(
@@ -107,6 +139,75 @@ public sealed partial class FileSurfaceContent
         return string.IsNullOrWhiteSpace(name)
             ? "Shortcut.lnk"
             : name + " - Shortcut.lnk";
+    }
+
+    /// <summary>
+    /// Materializes pasted virtual Shell namespace items (This PC, Recycle
+    /// Bin, ...) as .lnk files in the widget's current folder. This is what
+    /// Explorer does when such an item is pasted into a filesystem folder:
+    /// there is no item body to move or copy, only a PIDL to store via
+    /// IShellLink::SetIDList.
+    /// </summary>
+    private async Task<int> CreateShortcutsForPastedNamespaceItemsAsync(
+        IReadOnlyList<ShellClipboardHelper.ShellNamespaceClipboardItem> items)
+    {
+        if (items.Count == 0)
+        {
+            return 0;
+        }
+
+        string? destinationFolderPath =
+            ViewModel.CurrentFolderPath ?? ViewModel.MappedFolderPath;
+        if (string.IsNullOrWhiteSpace(destinationFolderPath))
+        {
+            // Shortcut creation needs a concrete folder to write into; without
+            // one the paste would create nothing and stay silent.
+            return 0;
+        }
+
+        string destination = Path.GetFullPath(destinationFolderPath);
+        Directory.CreateDirectory(destination);
+        var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int created = 0;
+        foreach (ShellClipboardHelper.ShellNamespaceClipboardItem item in items)
+        {
+            string itemName = FileService.SanitizeFileSystemName(item.DisplayName);
+            if (string.IsNullOrWhiteSpace(itemName))
+            {
+                itemName = "Shortcut";
+            }
+
+            string linkPath = FileService.GetAvailablePath(
+                Path.Combine(destination, $"{itemName} - Shortcut.lnk"),
+                reserved);
+            try
+            {
+                ShortcutHelper.CreateShellNamespaceShortcut(
+                    linkPath,
+                    item.ParsingName,
+                    T("Widget.CreateShortcut"));
+                reserved.Add(linkPath);
+                created++;
+            }
+            catch (Exception ex)
+            {
+                App.Log(
+                    "[Paste] Namespace shortcut creation failed " +
+                    $"target='{item.ParsingName}': {ex.Message}");
+            }
+
+            // Keep multi-item pastes responsive; the shortcut backends are
+            // apartment-sensitive, so the COM work stays on this thread.
+            await Task.Yield();
+        }
+
+        if (created > 0 &&
+            !string.IsNullOrWhiteSpace(ViewModel.MappedFolderPath))
+        {
+            await ViewModel.RefreshFromConfigAsync(clearIconCacheBeforeHydration: false);
+        }
+
+        return created;
     }
 
     private async Task<IReadOnlyList<string>> CreateShortcutFilesAsync(
@@ -188,7 +289,7 @@ public sealed partial class FileSurfaceContent
         if (created.Count > 0 &&
             !string.IsNullOrWhiteSpace(ViewModel.MappedFolderPath))
         {
-            await ViewModel.RefreshFromConfigAsync();
+            await ViewModel.RefreshFromConfigAsync(clearIconCacheBeforeHydration: false);
         }
 
         return created;

@@ -5,6 +5,25 @@ using System.Diagnostics;
 
 namespace DeskBox.Services;
 
+/// <summary>How <see cref="FileService.OpenItemAsync"/> dispatches an item.</summary>
+internal enum OpenItemDispatchMode
+{
+    /// <summary>The explorer-first explicit-"open" pipeline plain items use.</summary>
+    ShellDispatch,
+
+    /// <summary>
+    /// Local launch with the Shell default verb — the desktop double-click
+    /// dispatch — for items where an explicit "open" verb is wrong or
+    /// fragile: template documents, whose default verb creates a copy
+    /// (feedback 366 / confirmed 81), and shortcuts to local-filesystem
+    /// targets, where the "open" verb both bypasses third-party Folder
+    /// handlers (#459) and dies silently inside the explorer-hosted
+    /// fire-and-forget dispatch when the OS-side "open" resolution is
+    /// damaged (feedback 246).
+    /// </summary>
+    LocalDefaultVerb
+}
+
 public sealed partial class FileService
 {
     private static readonly BoundedStaOperationRunner s_openItemRunner =
@@ -31,7 +50,7 @@ public sealed partial class FileService
             "FileService.OpenItemAsync",
             $"kind={kind}");
 
-        Stopwatch queueStopwatch = Stopwatch.StartNew();
+        Stopwatch runStopwatch = Stopwatch.StartNew();
         StaOperationResult<OpenItemResult> operation = await s_openItemRunner.RunAsync(
             () => OpenItemCore(
                 itemPath,
@@ -43,7 +62,8 @@ public sealed partial class FileService
             cancellationToken).ConfigureAwait(false);
         trace?.Mark(
             "admission",
-            $"started={operation.Started} queueWaitMs={queueStopwatch.Elapsed.TotalMilliseconds:F1}");
+            $"started={operation.Started} queueWaitMs={operation.QueueWait.TotalMilliseconds:F1} " +
+            $"runTotalMs={runStopwatch.Elapsed.TotalMilliseconds:F1}");
         if (!operation.Started)
         {
             trace?.Mark("result", "result=Busy");
@@ -156,15 +176,49 @@ public sealed partial class FileService
                 return OpenItemResult.RequiresOpenWithPicker;
             }
 
-            using (PerformanceLogger.Measure(
-                       "FileService.OpenItem.ShellDispatch",
-                       $"kind={kind}"))
+            // The probe only ran for real .lnk paths, so a shortcut flag
+            // without a .lnk keeps the legacy pipeline untouched.
+            OpenItemDispatchMode dispatchMode = SelectOpenDispatchMode(
+                isShortcut && shellLink,
+                shortcutProbe.Kind,
+                pathToOpen);
+            if (dispatchMode == OpenItemDispatchMode.LocalDefaultVerb)
             {
-                result = Win32Helper.OpenFile(ownerHwnd, pathToOpen)
-                    ? OpenItemResult.OpenedOrHandled
-                    : OpenItemResult.Failed;
+                // Desktop double-click semantics: a NULL verb resolves the
+                // item's default handler — the Folder default handler for a
+                // folder shortcut (#459), the template "New" verb that
+                // creates a copy (feedback 366), and the target's default
+                // launch for an app shortcut (feedback 246). Explorer-hosted
+                // environment inheritance is pointless for file manager
+                // windows and freshly created documents, and a local
+                // ShellExecuteEx failure throws, so broken launches surface
+                // instead of dying silently inside Explorer.
+                using (PerformanceLogger.Measure(
+                           "FileService.OpenItem.LocalDefaultVerb",
+                           $"kind={kind}"))
+                {
+                    result = Win32Helper.OpenWithDefaultVerbLocally(
+                            pathToOpen,
+                            Win32Helper.ResolveShellLaunchDirectory(pathToOpen))
+                        ? OpenItemResult.OpenedOrHandled
+                        : OpenItemResult.Failed;
+                }
+
+                trace?.Mark("local-default-verb", $"result={result}");
             }
-            trace?.Mark("shell-dispatch-end", $"result={result}");
+            else
+            {
+                using (PerformanceLogger.Measure(
+                           "FileService.OpenItem.ShellDispatch",
+                           $"kind={kind}"))
+                {
+                    result = Win32Helper.OpenFile(ownerHwnd, pathToOpen)
+                        ? OpenItemResult.OpenedOrHandled
+                        : OpenItemResult.Failed;
+                }
+
+                trace?.Mark("shell-dispatch-end", $"result={result}");
+            }
         }
         catch (Exception ex)
         {
@@ -182,6 +236,41 @@ public sealed partial class FileService
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Chooses how an item is dispatched. Two classes must use the Shell's
+    /// default verb — the desktop double-click dispatch, launched locally:
+    ///
+    /// - Template documents (feedback 366 / confirmed 81): their Shell class's
+    ///   default verb is "New", which creates a copy of the template. An
+    ///   explicit "open" verb opens the template as a regular document, and
+    ///   saving then overwrites the template file.
+    /// - Shortcuts whose target is on the local filesystem (#459 folders,
+    ///   feedback 246 apps): an explicit "open" verb bypasses third-party
+    ///   Folder default handlers, and the explorer-hosted "open" dispatch is
+    ///   fire-and-forget — when the OS-side "open" resolution is damaged the
+    ///   launch dies silently inside Explorer while reporting success.
+    ///
+    /// Everything else — plain files and folders, and shortcuts to UNC,
+    /// network or shell-namespace targets — keeps the explorer-first
+    /// pipeline: Explorer owns credentials and shell-item resolution for
+    /// those.
+    /// </summary>
+    internal static OpenItemDispatchMode SelectOpenDispatchMode(
+        bool isShellLinkShortcut,
+        ShortcutTargetKind targetKind,
+        string pathToOpen)
+    {
+        if (TemplateDocumentVerbPolicy.IsTemplateDocument(pathToOpen))
+        {
+            return OpenItemDispatchMode.LocalDefaultVerb;
+        }
+
+        return isShellLinkShortcut &&
+               targetKind == ShortcutTargetKind.LocalFileSystem
+            ? OpenItemDispatchMode.LocalDefaultVerb
+            : OpenItemDispatchMode.ShellDispatch;
     }
 
 }

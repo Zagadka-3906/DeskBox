@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Collections.ObjectModel;
 using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -14,7 +14,15 @@ namespace DeskBox.ViewModels;
 
 public partial class SettingsViewModel
 {
-    public Color GetCurrentAccentColor() => _currentAccentColor;
+    // Host-side working state for the accent card. The XAML binding surface
+    // lives on the appearance editor (section-level DataContext switch); the
+    // shell keeps the accent-mode flag its theme-service write chain needs
+    // and pushes the accent presentation onto the editor on every change.
+    internal bool UseSystemAccentColor
+    {
+        get => _useSystemAccentColor;
+        private set => SetProperty(ref _useSystemAccentColor, value);
+    }
 
     public bool SuppressAppearanceNotifications { get; set; }
     public bool DeferAppearancePersistence { get; set; }
@@ -35,10 +43,7 @@ public partial class SettingsViewModel
 
         if (UseSystemAccentColor)
         {
-            _useSystemAccentColor = false;
-            OnPropertyChanged(nameof(UseSystemAccentColor));
-            OnPropertyChanged(nameof(CanEditCustomAccent));
-            OnPropertyChanged(nameof(AccentColorDescription));
+            UseSystemAccentColor = false;
         }
 
         RefreshAccentPreview();
@@ -46,10 +51,11 @@ public partial class SettingsViewModel
 
     public void UpdateManagedStorageRootPath(string path)
     {
+        // The verified migration already committed both durable settings files.
+        // This only refreshes presentation, without another settings write.
         string normalizedPath = SettingsService.NormalizeManagedStorageRootPath(path);
         ManagedStorageRootPath = normalizedPath;
-        _settingsService.Settings.DefaultManagedStorageRootPath = normalizedPath;
-        _settingsService.SaveDebounced();
+        _managedStorageSettings.UpdateRootPath(normalizedPath);
         _ = RefreshQuickAccessStateAsync(showBusy: true);
     }
 
@@ -67,7 +73,9 @@ public partial class SettingsViewModel
 
             if (App.Current is { } app)
             {
-                app.ResizeGuideOverlay.IsSnapEnabled = _settingsService.Settings.ResizeSnapEnabled;
+                // ApplySettingsSnapshot above already re-projected the
+                // restored snap state onto the interaction editor.
+                app.ResizeGuideOverlay.IsSnapEnabled = _interactionSettings.SnapEnabled;
             }
 
             App.Current?.GlobalHotkeyService?.RefreshRegistration();
@@ -76,8 +84,7 @@ public partial class SettingsViewModel
             _themeService.RefreshAppearance();
             RefreshAccentPreview();
             await _settingsService.SaveAsync();
-            App.Current?.RefreshQuickCaptureClipboardService();
-            App.Current?.RefreshTodoReminderService();
+            _quickCaptureSettings.RefreshFromSettings();
             _settingsService.NotifyAppearancePreviewNow();
         }
         finally

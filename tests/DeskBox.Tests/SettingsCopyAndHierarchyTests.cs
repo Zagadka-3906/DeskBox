@@ -60,22 +60,22 @@ public sealed class SettingsCopyAndHierarchyTests
         Assert.DoesNotContain("Settings.Capsule.Enabled.Title", capsuleXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("WidgetCapsuleModeEnabled", capsuleXaml, StringComparison.Ordinal);
         Assert.Contains(
-            "controls:SettingsComboBox.Value=\"{Binding SelectedWidgetCollapseBehavior, Mode=TwoWay}\"",
+            "controls:SettingsComboBox.Value=\"{Binding CollapseBehavior, Mode=TwoWay}\"",
             capsuleXaml,
             StringComparison.Ordinal);
         Assert.Contains("Tag=\"WidgetGroups\"", appearanceXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("IsWidgetGroupsEnabled", appearanceXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("IsWidgetGroupsEnabled", windowXaml, StringComparison.Ordinal);
-        Assert.Contains(
-            "ItemsSource=\"{Binding AvailableWidgetGroupNavigationStyleOptions}\"",
+        Assert.DoesNotContain(
+            "ItemsSource=\"{Binding AvailableGroupNavigationStyleOptions}\"",
             appearanceXaml,
             StringComparison.Ordinal);
-        Assert.Contains(
-            "controls:SettingsComboBox.Value=\"{Binding SelectedWidgetGroupDefaultNavigationStyle, Mode=TwoWay}\"",
+        Assert.DoesNotContain(
+            "controls:SettingsComboBox.Value=\"{Binding GroupNavigationStyle, Mode=TwoWay}\"",
             appearanceXaml,
             StringComparison.Ordinal);
         Assert.Contains("x:Key=\"SettingValueTextStyle\"", overviewResources, StringComparison.Ordinal);
-        Assert.Contains("ExistingWidgetGroupItems", windowXaml, StringComparison.Ordinal);
+        Assert.Contains("ItemsSource=\"{Binding ExistingGroups}\"", windowXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Settings.WidgetGroups.Existing.Name.Title", windowXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("WidgetGroupNameTextBox_LostFocus", windowXaml, StringComparison.Ordinal);
         Assert.Contains(
@@ -90,10 +90,10 @@ public sealed class SettingsCopyAndHierarchyTests
         Assert.Contains("WidgetGroupNavigationComboBox_SelectionChanged", windowXaml, StringComparison.Ordinal);
         Assert.Contains("DissolveWidgetGroupButton_Click", windowXaml, StringComparison.Ordinal);
         int accentColor = appearanceXaml.IndexOf("Settings.Accent.Source.Title", StringComparison.Ordinal);
-        int widgetGroups = appearanceXaml.IndexOf("Tag=\"WidgetGroups\"", StringComparison.Ordinal);
         int material = appearanceXaml.IndexOf("Tag=\"AppearanceMaterialSettings\"", StringComparison.Ordinal);
-        Assert.True(accentColor >= 0 && widgetGroups > accentColor);
-        Assert.True(widgetGroups < material);
+        int widgetGroups = appearanceXaml.IndexOf("Tag=\"WidgetGroups\"", StringComparison.Ordinal);
+        Assert.True(accentColor >= 0 && material > accentColor);
+        Assert.True(material < widgetGroups);
         // Capsule mode is a top-level page now.
         Assert.Contains(
             "[\"CapsuleMode\"] = new(\"CapsuleMode\", \"Settings.Section.CapsuleMode\", null, \"CapsuleMode\")",
@@ -128,23 +128,29 @@ public sealed class SettingsCopyAndHierarchyTests
             root,
             "src/DeskBox/Views/SettingsWindow.xaml.cs"));
 
-        Assert.Contains("SelectedAccentColorSource", appearanceXaml, StringComparison.Ordinal);
+        Assert.Contains("AccentColorSource", appearanceXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("IsOn=\"{Binding UseSystemAccentColor", appearanceXaml, StringComparison.Ordinal);
 
-        Assert.Contains("SelectedFileOpenMethod", windowXaml, StringComparison.Ordinal);
-        Assert.Contains("SelectedShowDesktopBehavior", windowXaml, StringComparison.Ordinal);
-        Assert.Contains("SelectedWeatherLocationMode", windowXaml, StringComparison.Ordinal);
+        Assert.Contains("{Binding FileOpenMethod, Mode=TwoWay}", windowXaml, StringComparison.Ordinal);
+        Assert.Contains("{Binding ShowDesktopBehavior, Mode=TwoWay}", windowXaml, StringComparison.Ordinal);
+        Assert.Contains("SelectedLocationMode", windowXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("IsOn=\"{Binding DoubleClickToOpen", windowXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("IsOn=\"{Binding KeepWidgetsVisibleOnShowDesktop", windowXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("IsOn=\"{Binding WeatherAutoLocation", windowXaml, StringComparison.Ordinal);
 
-        // File stacking is redesigned around an explicit master switch plus
-        // an automatic-grouping sub-switch, so the plain dropdown is gone.
-        Assert.Contains("IsOn=\"{x:Bind ViewModel.FileStacksEnabled, Mode=TwoWay}\"", fileWidgetXaml, StringComparison.Ordinal);
-        Assert.Contains("Settings.FileStacks.Mode.Title", windowXaml, StringComparison.Ordinal);
-        Assert.Contains("Settings.FileStacks.Mode.Description", windowXaml, StringComparison.Ordinal);
+        // File stacking is redesigned around the auto-stacking switch as the
+        // section's first-level expander; the master switch is retired.
+        Assert.Contains("controls:SettingsComboBox.Value=\"{x:Bind FileStack.OpenMode, Mode=TwoWay}\"", fileWidgetXaml, StringComparison.Ordinal);
         Assert.Contains(
-            "IsOn=\"{Binding FileStacksEnabled, Mode=TwoWay}\"",
+            "HeaderKey=\"Settings.FileStacks.Auto.Title\"",
+            windowXaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HeaderKey=\"Settings.FileStacks.OpenMode.Title\"",
+            windowXaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IsOn=\"{Binding AutoStacking, Mode=TwoWay}\"",
             windowXaml,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -155,13 +161,12 @@ public sealed class SettingsCopyAndHierarchyTests
             "public bool WidgetCapsuleModeEnabled",
             appSettings,
             StringComparison.Ordinal);
-        Assert.Contains("IsOn=\"{Binding FileStackAutoStacking, Mode=TwoWay}\"", windowXaml, StringComparison.Ordinal);
         Assert.Contains(
-            "SelectedFileWidgetFolderOpenBehavior",
+            "{x:Bind FeatureWidgets.FolderOpenBehavior, Mode=TwoWay}",
             fileWidgetXaml,
             StringComparison.Ordinal);
         Assert.Contains(
-            "IsOn=\"{x:Bind ViewModel.FileItemSystemContextMenuEnabled, Mode=TwoWay}\"",
+            "IsOn=\"{x:Bind Interaction.FileItemContextMenuEnabled, Mode=TwoWay}\"",
             fileWidgetXaml,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -169,7 +174,7 @@ public sealed class SettingsCopyAndHierarchyTests
             fileWidgetSettings,
             StringComparison.Ordinal);
 
-        Assert.Contains("HoverButtonActionsSummaryText", windowXaml, StringComparison.Ordinal);
+        Assert.Contains("{Binding HoverButtonActionsSummary}", windowXaml, StringComparison.Ordinal);
         Assert.Contains("Click=\"HoverButtonActionsDropDown_Click\"", windowXaml, StringComparison.Ordinal);
         Assert.Equal(
             1,
@@ -196,11 +201,11 @@ public sealed class SettingsCopyAndHierarchyTests
             ["Settings.CollapseBehavior.Expanded"] = "始终展开",
             ["Widget.CollapseBehavior.Title"] = "展开方式",
             ["Widget.CollapseBehavior.System"] = "跟随默认",
-            ["Widget.CollapseBehavior.Click"] = "点击展开",
+            ["Widget.CollapseBehavior.Click"] = "单击展开",
             ["Widget.CollapseBehavior.Smart"] = "悬停自动展开",
             ["Settings.Capsule.Overrides.FollowGlobal"] = "恢复默认",
             ["Widget.OpenStorageFolder"] = "打开格子文件夹",
-            ["Widget.ShowInExplorer"] = "在文件资源管理器中显示",
+            ["Widget.ShowInExplorer"] = "打开文件所在的位置",
             ["Search.Menu.AttachToTodo"] = "添加到待办",
             ["QuickCapture.SaveToRecords"] = "保存为随记",
             ["QuickCapture.PinToRecords"] = "固定这条随记",
@@ -213,13 +218,20 @@ public sealed class SettingsCopyAndHierarchyTests
             ["Settings.WidgetGroupNavigation.Stack"] = "折叠显示",
             ["Settings.WidgetGroupNavigation.Tabs"] = "并排显示",
             ["Settings.WidgetGroupNavigation.Title"] = "标题栏布局",
+            ["Settings.WidgetGroupSwitchAnimation.Auto"] = "自动",
+            ["Settings.WidgetGroupSwitchAnimation.Description"] = "切换格子组内格子时的过渡效果，自动时按标题栏布局选择方向",
+            ["Settings.WidgetGroupSwitchAnimation.Fade"] = "淡入淡出",
+            ["Settings.WidgetGroupSwitchAnimation.Horizontal"] = "左右滑动",
+            ["Settings.WidgetGroupSwitchAnimation.None"] = "无动画",
+            ["Settings.WidgetGroupSwitchAnimation.Title"] = "切换动画",
+            ["Settings.WidgetGroupSwitchAnimation.Vertical"] = "上下滑动",
             ["Settings.WidgetGroups.PageDescription"] = "将多个格子放在同一位置，通过标题栏切换。每个格子的内容仍然相互独立。",
-            ["Settings.WidgetGroups.FollowDefaultWithValue"] = "跟随默认（{0}）",
+            ["Settings.WidgetGroups.FollowDefaultWithValue"] = "跟随默认({0})",
             ["Widget.Group.Join"] = "组合格子…",
             ["Widget.DeleteFolderToRecycleBin"] = "同时移入回收站",
             ["Search.Delete.Action"] = "移入回收站",
             ["Settings.QuickCapture.Format.Title"] = "编辑格式",
-            ["Settings.QuickCapture.Format.Description"] = "选择随记编辑器使用 Markdown 或纯文本",
+            ["Settings.QuickCapture.Format.Description"] = "影响编辑器语法与显示样式",
             ["Settings.Accent.Source.Title"] = "主题色来源",
             ["Settings.OpenMethod.Title"] = "打开方式",
             ["Settings.ShowDesktopBehavior.Title"] = "按 Win+D 后",
@@ -239,16 +251,13 @@ public sealed class SettingsCopyAndHierarchyTests
             ["Settings.DataBackup.Description"] = "备份设置、格子、随记、待办和附件副本，不含文件格子中的文件",
             ["Settings.Restore.Description"] = "恢复默认设置，保留语言、开机启动、格子开关和已有内容",
             ["Settings.Restore.Tooltip"] = "恢复默认设置，不会删除已有内容",
-            ["Settings.Todo.Group.FooterActions.Title"] = "底部栏",
-            ["Settings.Todo.Group.FooterActions.Description"] = "选择底部显示的剩余任务数量和清除已完成按钮",
+            ["Settings.Todo.Group.FooterActions.Description"] = "选择底部显示的剩余待办数量和清除已完成按钮",
             ["Settings.Todo.FooterDisplay.Title"] = "显示内容",
-            ["Settings.Todo.ShowFooterStats.Title"] = "剩余任务数量",
+            ["Settings.Todo.ShowFooterStats.Title"] = "剩余待办数量",
             ["Settings.Todo.ShowClearCompleted.Title"] = "清除已完成按钮",
             ["Settings.Onboarding.Description"] = "重新查看格子创建、文件收纳、功能格子、外观和快捷键说明",
             ["Settings.Weather.LocationMode.Title"] = "位置来源",
             ["Settings.FileStacks.Title"] = "文件叠放",
-            ["Settings.FileStacks.Mode.Title"] = "叠放模式",
-            ["Settings.FileStacks.Mode.Description"] = "开启手动叠放和自动叠放；关闭后隐藏所有叠放",
             ["Settings.FileStacks.Auto.Title"] = "自动叠放",
             ["Settings.FileStacks.Status.Manual"] = "仅手动叠放",
             ["Settings.HoverButtonActions.None"] = "不显示"
@@ -273,15 +282,15 @@ public sealed class SettingsCopyAndHierarchyTests
             "src/DeskBox/Views/SettingsSections/AppearanceSettingsSection.xaml"));
 
         Assert.Contains(
-            "Text=\"{Binding SelectedWidgetTitleIconModeText}\"",
+            "Description=\"{Binding TitleIconModeText}\"",
             appearanceXaml,
             StringComparison.Ordinal);
         Assert.Contains(
-            "ItemsSource=\"{Binding AvailableWidgetTitleIconModeOptions}\"",
+            "ItemsSource=\"{Binding AvailableTitleIconModeOptions}\"",
             appearanceXaml,
             StringComparison.Ordinal);
         Assert.Contains(
-            "controls:SettingsComboBox.Value=\"{Binding SelectedWidgetTitleIconMode, Mode=TwoWay}\"",
+            "controls:SettingsComboBox.Value=\"{Binding TitleIconMode, Mode=TwoWay}\"",
             appearanceXaml,
             StringComparison.Ordinal);
     }
@@ -294,6 +303,8 @@ public sealed class SettingsCopyAndHierarchyTests
             root,
             "src/DeskBox/Views/SettingsWindow.LocalizationAndWidgets.cs"));
 
+        // The colorful kind icon rides in the composed header (WidgetTitleIcon
+        // is a UserControl and cannot fill the native HeaderIcon slot).
         Assert.Contains("new WidgetTitleIcon", source, StringComparison.Ordinal);
         Assert.Contains(
             "IconKind = WidgetTitleIconKindNames.FromWidgetKind(entry.Kind)",
@@ -301,14 +312,8 @@ public sealed class SettingsCopyAndHierarchyTests
             StringComparison.Ordinal);
         Assert.Contains("Mode = WidgetTitleIconModeNames.Color", source, StringComparison.Ordinal);
         Assert.Contains("IconSize = 16", source, StringComparison.Ordinal);
-        Assert.Contains("Margin = new Thickness(4)", source, StringComparison.Ordinal);
-        Assert.Contains("ColumnSpacing = 12", source, StringComparison.Ordinal);
-        Assert.Contains(
-            "Style = (Style)SettingsRoot.Resources[\"SettingCardIdentityGridStyle\"]",
-            source,
-            StringComparison.Ordinal);
-        Assert.Contains("identity.Padding = new Thickness(16, 10, 16, 10)", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("var icon = new FontIcon", source, StringComparison.Ordinal);
+        Assert.Contains("card.Header = headerPanel;", source, StringComparison.Ordinal);
+        Assert.Contains("new SettingsCard", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -331,7 +336,13 @@ public sealed class SettingsCopyAndHierarchyTests
             root,
             "src/DeskBox/Views/SettingsWindow.LocalizationAndWidgets.cs"));
 
-        foreach (string resources in new[] { windowXaml, overviewResources })
+        // The shared metrics/styles live only in SettingsOverviewResources.xaml;
+        // SettingsWindow.xaml merges that dictionary instead of duplicating it.
+        Assert.Contains(
+            "ms-appx:///Styles/SettingsOverviewResources.xaml",
+            windowXaml,
+            StringComparison.Ordinal);
+        foreach (string resources in new[] { overviewResources })
         {
             string titleStyle = SliceSection(
                 resources,
@@ -352,13 +363,15 @@ public sealed class SettingsCopyAndHierarchyTests
                 StringComparison.Ordinal);
         }
 
+        // Drill-down rows are native SettingsCards now; the hand-built
+        // identity-grid scaffolding must not come back.
         Assert.Equal(
-            5,
+            0,
             CountOccurrences(
                 appearanceXaml,
                 "Style=\"{StaticResource SettingCardIdentityGridStyle}\""));
         Assert.Equal(
-            5,
+            0,
             CountOccurrences(
                 fileWidgetXaml,
                 "Style=\"{StaticResource SettingCardIdentityGridStyle}\""));
@@ -378,11 +391,13 @@ public sealed class SettingsCopyAndHierarchyTests
             "x:Name=\"MaintenanceSection\"",
             "x:Name=\"BackupRestoreSettingsSection\"");
         Assert.Equal(
-            4,
+            0,
             CountOccurrences(
                 maintenance,
                 "Style=\"{StaticResource SettingCardIdentityGridStyle}\""));
-        Assert.Contains(
+        // Feature rows are native SettingsCards now; the identity-grid style
+        // lookup must not come back.
+        Assert.DoesNotContain(
             "SettingsRoot.Resources[\"SettingCardIdentityGridStyle\"]",
             featureRows,
             StringComparison.Ordinal);
@@ -406,15 +421,7 @@ public sealed class SettingsCopyAndHierarchyTests
         Assert.Contains("DesktopOrganization.Settings.StartAction", fileWidgetXaml, StringComparison.Ordinal);
         Assert.True(
             fileWidgetXaml.IndexOf("Tag=\"FileStackSettings\"", StringComparison.Ordinal) <
-            fileWidgetXaml.IndexOf("SelectedFileWidgetFolderOpenBehavior", StringComparison.Ordinal));
-        Assert.Contains(
-            "MinHeight=\"{StaticResource SettingsRowMinHeight}\"",
-            fileWidgetXaml,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "Padding=\"{StaticResource SettingsRowPadding}\"",
-            fileWidgetXaml,
-            StringComparison.Ordinal);
+            fileWidgetXaml.IndexOf("FeatureWidgets.FolderOpenBehavior", StringComparison.Ordinal));
 
         int interactionSection = windowXaml.IndexOf(
             "x:Name=\"InteractionSection\"",
@@ -474,21 +481,23 @@ public sealed class SettingsCopyAndHierarchyTests
 
         Assert.True(interactionSection >= 0);
         Assert.True(widgetLayer > interactionSection);
-        Assert.True(widgetLayer < hoverActions);
-        Assert.True(hoverActions < interactionDetail);
-        Assert.True(interactionDetail < openMethod);
-        Assert.True(openMethod < showDesktopBehavior);
-        Assert.True(showDesktopBehavior < globalHotkey);
-        Assert.True(globalHotkey < resizeSnap);
-        Assert.True(resizeSnap < desktopDoubleClick);
+        Assert.True(globalHotkey > widgetLayer);
+        Assert.True(showDesktopBehavior > globalHotkey);
+        Assert.True(openMethod > showDesktopBehavior);
+        Assert.True(hoverActions > openMethod);
+        Assert.True(resizeSnap > hoverActions);
+        Assert.True(desktopDoubleClick > resizeSnap);
         Assert.True(generalSection >= 0);
         Assert.True(generalSection < language);
-        Assert.True(language < attachmentStorage);
-        Assert.True(attachmentStorage < autoStart);
-        Assert.True(autoStart < onboarding);
+        Assert.True(language < autoStart);
+        Assert.True(autoStart < attachmentStorage);
+        Assert.True(attachmentStorage < onboarding);
         Assert.DoesNotContain("InteractionHotkeySettings", windowXaml, StringComparison.Ordinal);
+        // Two occurrences are expected: the card HeaderKey plus the combo box
+        // AutomationNameKey, which deliberately reuses the same header key so
+        // the accessible name stays same-sourced with the visible label.
         Assert.Equal(
-            1,
+            2,
             windowXaml.Split("Settings.WidgetLayerMode.Title", StringSplitOptions.None).Length - 1);
     }
 
@@ -508,13 +517,9 @@ public sealed class SettingsCopyAndHierarchyTests
             "x:Name=\"WeatherSettingsSection\"",
             "x:Name=\"GeneralSection\"");
 
-        Assert.Contains("Click=\"WeatherDisplayOptionsDropDown_Click\"", weather, StringComparison.Ordinal);
-        Assert.Contains("Content=\"{Binding WeatherDisplayOptionsSummaryText}\"", weather, StringComparison.Ordinal);
-        Assert.Equal(1, CountOccurrences(weather, "Settings.Weather.Group.Display.Title"));
-        Assert.DoesNotContain("IsOn=\"{Binding WeatherShowForecast", weather, StringComparison.Ordinal);
-        Assert.DoesNotContain("IsOn=\"{Binding WeatherShowPressure", weather, StringComparison.Ordinal);
-        Assert.Contains("SettingsMultiSelectMenu.Show(", navigation, StringComparison.Ordinal);
-        Assert.Contains("ViewModel.AvailableWeatherDisplayOptions", navigation, StringComparison.Ordinal);
+        Assert.Contains("Settings.Weather.Group.Display.Title", weather, StringComparison.Ordinal);
+        Assert.Contains("IsOn=\"{Binding ShowForecast", weather, StringComparison.Ordinal);
+        Assert.Contains("IsOn=\"{Binding ShowPressure", weather, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -537,7 +542,7 @@ public sealed class SettingsCopyAndHierarchyTests
         Assert.Contains("x:Name=\"SearchHotkeyToggle\"", searchXaml, StringComparison.Ordinal);
         Assert.Contains("Settings.Search.Hotkey.Title", searchXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Settings.Search.Scope.Title", searchXaml, StringComparison.Ordinal);
-        Assert.Contains("FeatureWidgetSettings.IsEnabled(settings, WidgetKind.Search)", searchCodeBehind, StringComparison.Ordinal);
+        Assert.Contains("_viewModel.State.FeatureEnabled", searchCodeBehind, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -589,12 +594,10 @@ public sealed class SettingsCopyAndHierarchyTests
             "Settings.Capsule.ExpansionDirection.Auto",
             "Settings.Capsule.ExpansionDirection.Down",
             "Settings.Capsule.ExpansionDirection.Up",
-            "Settings.CollapsedStyle.Smart",
             "Settings.CompactContent.Smart",
             "Settings.Capsule.Direction.Auto",
             "Settings.Capsule.Animation.Smooth",
             "Settings.Capsule.HoverResponse.Balanced",
-            "Settings.Capsule.MediaCorner.FollowWidget",
             "Settings.Density.Standard",
             "Settings.Density.Custom",
             "Settings.Animation.Preset.Standard",
@@ -641,10 +644,10 @@ public sealed class SettingsCopyAndHierarchyTests
             "x:Name=\"TodoSettingsSection\"",
             "x:Name=\"MusicSettingsSection\"");
 
-        Assert.Contains("IsOn=\"{Binding QuickCaptureEnabled, Mode=TwoWay}\"", quickCapture, StringComparison.Ordinal);
-        Assert.Contains("IsOn=\"{Binding TodoEnabled, Mode=TwoWay}\"", todo, StringComparison.Ordinal);
+        Assert.Contains("IsOn=\"{Binding Enabled, Mode=TwoWay}\"", quickCapture, StringComparison.Ordinal);
+        Assert.Contains("IsOn=\"{Binding Enabled, Mode=TwoWay}\"", todo, StringComparison.Ordinal);
         Assert.Equal(5, CountOccurrences(quickCapture, "Loaded=\"FeatureSettingsExpander_Loaded\""));
-        Assert.Equal(5, CountOccurrences(todo, "Loaded=\"FeatureSettingsExpander_Loaded\""));
+        Assert.Equal(4, CountOccurrences(todo, "Loaded=\"FeatureSettingsExpander_Loaded\""));
 
         AssertInOrder(
             quickCapture,
@@ -658,39 +661,34 @@ public sealed class SettingsCopyAndHierarchyTests
             "Settings.QuickCapture.WideLayout.Title",
             "Settings.Todo.Tabs.Title",
             "Settings.ContentEditor.Group.Title",
-            "Settings.Todo.ReminderEnabled.Title",
-            "Settings.Todo.Group.FooterActions.Title");
+            "Settings.Todo.FooterDisplay.Title",
+            "Settings.Todo.ReminderEnabled.Title");
 
         Assert.Contains("Click=\"QuickCaptureTabsDropDown_Click\"", quickCapture, StringComparison.Ordinal);
         Assert.Contains("Click=\"TodoTabsDropDown_Click\"", todo, StringComparison.Ordinal);
         Assert.Contains("Click=\"TodoFooterDisplayDropDown_Click\"", todo, StringComparison.Ordinal);
-        Assert.Contains("ItemsSource=\"{Binding VisibleQuickCaptureDefaultViewOptions}\"", quickCapture, StringComparison.Ordinal);
-        Assert.Contains("ItemsSource=\"{Binding VisibleTodoDefaultFilterOptions}\"", todo, StringComparison.Ordinal);
+        Assert.Contains("ItemsSource=\"{Binding VisibleDefaultViewOptions}\"", quickCapture, StringComparison.Ordinal);
+        Assert.Contains("ItemsSource=\"{Binding VisibleDefaultFilterOptions}\"", todo, StringComparison.Ordinal);
 
-        Assert.DoesNotContain("IsOn=\"{Binding QuickCaptureShowRecordsTab", quickCapture, StringComparison.Ordinal);
-        Assert.DoesNotContain("IsOn=\"{Binding TodoShowAllTab", todo, StringComparison.Ordinal);
+        Assert.DoesNotContain("IsOn=\"{Binding ShowRecordsTab", quickCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("{Binding TodoShowAllTab", todo, StringComparison.Ordinal);
+        Assert.DoesNotContain("{Binding TodoShowTabBar", todo, StringComparison.Ordinal);
+        Assert.DoesNotContain("{Binding SelectedTodo", todo, StringComparison.Ordinal);
         Assert.Contains(
-            "controls:SettingsComboBox.Value=\"{Binding QuickCaptureEditorFormat, Mode=TwoWay}\"",
+            "controls:SettingsComboBox.Value=\"{Binding EditorFormat, Mode=TwoWay}\"",
             quickCapture,
             StringComparison.Ordinal);
         Assert.DoesNotContain("QuickCaptureDefaultFormat", quickCapture, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void QuickCapturePreviewLineCount_IsBoundInBothWindowHosts()
+    public void QuickCapturePreviewLineCount_IsBoundInTheSharedSurfaceHost()
     {
         string root = FindRepositoryRoot();
-        string standaloneWindow = File.ReadAllText(Path.Combine(
-            root,
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.xaml"));
         string sharedSurface = File.ReadAllText(Path.Combine(
             root,
             "src/DeskBox/Controls/WidgetContents/QuickCaptureSurfaceContent.xaml"));
 
-        Assert.Contains(
-            "MaxLines=\"{Binding ElementName=ItemsListView, Path=DataContext.ItemPreviewLineCount}\"",
-            standaloneWindow,
-            StringComparison.Ordinal);
         Assert.Contains(
             "MaxLines=\"{Binding ElementName=ItemsList, Path=DataContext.ItemPreviewLineCount}\"",
             sharedSurface,

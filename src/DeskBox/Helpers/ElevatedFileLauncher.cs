@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using DeskBox.Models;
+using DeskBox.Platform;
 
 namespace DeskBox.Helpers;
 
@@ -42,7 +43,12 @@ public static class ElevatedFileLauncher
     private const int TokenElevationInformationClass = 20;
     private const int ErrorCancelled = 1223;
 
-    private static readonly HashSet<string> ExecutableExtensions =
+    /// <summary>
+    /// Extensions Windows treats as executables; the Open With dialog
+    /// refuses them and the association list is empty, so open-with UI
+    /// must be hidden for these types (shared with ShellOpenWithHelper).
+    /// </summary>
+    internal static readonly HashSet<string> ExecutableExtensions =
         new(StringComparer.OrdinalIgnoreCase)
         {
             ".exe",
@@ -56,6 +62,13 @@ public static class ElevatedFileLauncher
     public static bool CanRunAsAdministrator(WidgetItem item) =>
         item is not null && TryCreateLaunchRequest(item, out _);
 
+    /// <summary>
+    /// Path-only variant for surfaces that hold a plain file path (for
+    /// example search results) instead of a <see cref="WidgetItem"/>.
+    /// </summary>
+    public static bool CanRunAsAdministrator(string filePath) =>
+        TryCreateLaunchRequest(filePath, null, out _);
+
     public static ElevatedFileLaunchResult RunAsAdministrator(
         IntPtr ownerWindow,
         WidgetItem item)
@@ -67,6 +80,29 @@ public static class ElevatedFileLauncher
                 ElevatedFileLaunchStatus.Failed);
         }
 
+        return RunAsAdministrator(ownerWindow, in request);
+    }
+
+    public static ElevatedFileLaunchResult RunAsAdministrator(
+        IntPtr ownerWindow,
+        string filePath)
+    {
+        if (!TryCreateLaunchRequest(
+                filePath,
+                null,
+                out ElevatedFileLaunchRequest request))
+        {
+            return new ElevatedFileLaunchResult(
+                ElevatedFileLaunchStatus.Failed);
+        }
+
+        return RunAsAdministrator(ownerWindow, in request);
+    }
+
+    private static ElevatedFileLaunchResult RunAsAdministrator(
+        IntPtr ownerWindow,
+        in ElevatedFileLaunchRequest request)
+    {
         if (request.DetectExistingProcess &&
             TryFindRunningUnelevatedTarget(
                 request.OriginalTargetPath,
@@ -80,9 +116,9 @@ public static class ElevatedFileLauncher
                 existingProcessId);
         }
 
-        var executeInfo = new ShellExecuteInfo
+        var executeInfo = new ElevatedLaunchNativeMethods.ShellExecuteInfo
         {
-            Size = (uint)Marshal.SizeOf<ShellExecuteInfo>(),
+            Size = (uint)Marshal.SizeOf<ElevatedLaunchNativeMethods.ShellExecuteInfo>(),
             Mask = ShellExecuteMaskNoCloseProcess |
                    ShellExecuteMaskNoAsync |
                    ShellExecuteMaskFlagNoUi,
@@ -98,7 +134,7 @@ public static class ElevatedFileLauncher
 
         try
         {
-            if (!ShellExecuteEx(ref executeInfo))
+            if (!ElevatedLaunchNativeMethods.ShellExecuteEx(ref executeInfo))
             {
                 int errorCode = Marshal.GetLastWin32Error();
                 ElevatedFileLaunchStatus status = errorCode == ErrorCancelled
@@ -121,7 +157,7 @@ public static class ElevatedFileLauncher
                     ElevatedFileLaunchStatus.NoNewProcess);
             }
 
-            uint processId = GetProcessId(executeInfo.ProcessHandle);
+            uint processId = ElevatedLaunchNativeMethods.GetProcessId(executeInfo.ProcessHandle);
             bool? elevated = TryGetTokenElevation(
                 executeInfo.ProcessHandle,
                 out bool tokenElevated)
@@ -162,7 +198,7 @@ public static class ElevatedFileLauncher
         {
             if (executeInfo.ProcessHandle != IntPtr.Zero)
             {
-                CloseHandle(executeInfo.ProcessHandle);
+                ElevatedLaunchNativeMethods.CloseHandle(executeInfo.ProcessHandle);
             }
         }
     }
@@ -172,12 +208,29 @@ public static class ElevatedFileLauncher
         out ElevatedFileLaunchRequest request)
     {
         request = default;
-        if (item is null || string.IsNullOrWhiteSpace(item.Path))
+        if (item is null)
         {
             return false;
         }
 
-        string candidate = item.Path.Trim();
+        return TryCreateLaunchRequest(
+            item.Path,
+            item.TargetPath,
+            out request);
+    }
+
+    internal static bool TryCreateLaunchRequest(
+        string? candidatePath,
+        string? targetPathHint,
+        out ElevatedFileLaunchRequest request)
+    {
+        request = default;
+        if (string.IsNullOrWhiteSpace(candidatePath))
+        {
+            return false;
+        }
+
+        string candidate = candidatePath.Trim();
         string arguments = string.Empty;
         string workingDirectory = string.Empty;
         if (ShortcutHelper.IsShellLinkPath(candidate))
@@ -185,14 +238,14 @@ public static class ElevatedFileLauncher
             ShortcutInfo? metadata = ShortcutHelper.ReadStoredMetadata(candidate);
             candidate = !string.IsNullOrWhiteSpace(metadata?.TargetPath)
                 ? metadata.TargetPath.Trim()
-                : item.TargetPath?.Trim() ?? string.Empty;
+                : targetPathHint?.Trim() ?? string.Empty;
             arguments = metadata?.Arguments?.Trim() ?? string.Empty;
             workingDirectory = metadata?.WorkingDirectory?.Trim() ?? string.Empty;
         }
-        else if (!string.IsNullOrWhiteSpace(item.TargetPath) &&
+        else if (!string.IsNullOrWhiteSpace(targetPathHint) &&
                  ShortcutHelper.IsShortcutPath(candidate))
         {
-            candidate = item.TargetPath.Trim();
+            candidate = targetPathHint.Trim();
         }
 
         candidate = Environment.ExpandEnvironmentVariables(candidate);
@@ -340,7 +393,7 @@ public static class ElevatedFileLauncher
                     continue;
                 }
 
-                IntPtr processHandle = OpenProcess(
+                IntPtr processHandle = ElevatedLaunchNativeMethods.OpenProcess(
                     ProcessQueryLimitedInformation,
                     inheritHandle: false,
                     (uint)process.Id);
@@ -373,7 +426,7 @@ public static class ElevatedFileLauncher
                 }
                 finally
                 {
-                    CloseHandle(processHandle);
+                    ElevatedLaunchNativeMethods.CloseHandle(processHandle);
                 }
             }
         }
@@ -387,7 +440,7 @@ public static class ElevatedFileLauncher
     {
         var path = new StringBuilder(32_768);
         uint length = (uint)path.Capacity;
-        if (!QueryFullProcessImageName(
+        if (!ElevatedLaunchNativeMethods.QueryFullProcessImageName(
                 processHandle,
                 flags: 0,
                 path,
@@ -406,7 +459,7 @@ public static class ElevatedFileLauncher
         out bool isElevated)
     {
         isElevated = false;
-        if (!OpenProcessToken(
+        if (!ElevatedLaunchNativeMethods.OpenProcessToken(
                 processHandle,
                 TokenQuery,
                 out IntPtr tokenHandle))
@@ -416,11 +469,11 @@ public static class ElevatedFileLauncher
 
         try
         {
-            int size = Marshal.SizeOf<TokenElevation>();
+            int size = Marshal.SizeOf<ElevatedLaunchNativeMethods.TokenElevation>();
             IntPtr buffer = Marshal.AllocHGlobal(size);
             try
             {
-                if (!GetTokenInformation(
+                if (!ElevatedLaunchNativeMethods.GetTokenInformation(
                         tokenHandle,
                         TokenElevationInformationClass,
                         buffer,
@@ -430,7 +483,7 @@ public static class ElevatedFileLauncher
                     return false;
                 }
 
-                isElevated = Marshal.PtrToStructure<TokenElevation>(buffer)
+                isElevated = Marshal.PtrToStructure<ElevatedLaunchNativeMethods.TokenElevation>(buffer)
                     .TokenIsElevated != 0;
                 return true;
             }
@@ -441,78 +494,10 @@ public static class ElevatedFileLauncher
         }
         finally
         {
-            CloseHandle(tokenHandle);
+            ElevatedLaunchNativeMethods.CloseHandle(tokenHandle);
         }
     }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct ShellExecuteInfo
-    {
-        public uint Size;
-        public uint Mask;
-        public IntPtr OwnerWindow;
-        [MarshalAs(UnmanagedType.LPWStr)] public string? Verb;
-        [MarshalAs(UnmanagedType.LPWStr)] public string? FileName;
-        [MarshalAs(UnmanagedType.LPWStr)] public string? Parameters;
-        [MarshalAs(UnmanagedType.LPWStr)] public string? Directory;
-        public int Show;
-        public IntPtr Instance;
-        public IntPtr IdList;
-        [MarshalAs(UnmanagedType.LPWStr)] public string? ClassName;
-        public IntPtr ClassKey;
-        public uint HotKey;
-        public IntPtr IconOrMonitor;
-        public IntPtr ProcessHandle;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct TokenElevation
-    {
-        public int TokenIsElevated;
-    }
-
-    [DllImport(
-        "shell32.dll",
-        EntryPoint = "ShellExecuteExW",
-        CharSet = CharSet.Unicode,
-        SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ShellExecuteEx(ref ShellExecuteInfo executeInfo);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr OpenProcess(
-        uint desiredAccess,
-        [MarshalAs(UnmanagedType.Bool)] bool inheritHandle,
-        uint processId);
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool QueryFullProcessImageName(
-        IntPtr processHandle,
-        uint flags,
-        StringBuilder executableName,
-        ref uint size);
-
-    [DllImport("kernel32.dll")]
-    private static extern uint GetProcessId(IntPtr processHandle);
-
-    [DllImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CloseHandle(IntPtr handle);
-
-    [DllImport("advapi32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool OpenProcessToken(
-        IntPtr processHandle,
-        uint desiredAccess,
-        out IntPtr tokenHandle);
-
-    [DllImport("advapi32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetTokenInformation(
-        IntPtr tokenHandle,
-        int tokenInformationClass,
-        IntPtr tokenInformation,
-        int tokenInformationLength,
-        out int returnLength);
+    // Native entry points and their marshaling structures live in
+    // DeskBox.Platform.ElevatedLaunchNativeMethods.
 }

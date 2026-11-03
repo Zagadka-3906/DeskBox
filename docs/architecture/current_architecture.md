@@ -1,6 +1,89 @@
 # DeskBox Current Architecture
 
-Last updated: 2026-07-20
+Foundation overview: 2026-07-20. Maintenance entry updated: 2026-09-23.
+
+Current implementation progress and the next bounded batch are recorded in
+[architecture-optimization-progress-20260922.md](architecture-optimization-progress-20260922.md).
+The original foundation sections below describe their historical milestone;
+use current source and the progress record when they differ. Todo enablement
+and reminder settings now have a feature editor, a settings coordinator, and
+an explicitly owned reminder runtime. Settings sections are created on demand.
+Search settings now use an injected editor/coordinator with per-visit request
+cancellation; hiding settings releases the page visit while the global search
+runtime remains owned by the application. BackupRuntime now owns scheduled and
+manual backup work; ShutdownSequence drains work before consumer/container
+cleanup. Backup settings now use an injected editor and coordinator; each
+visible cloud page owns its credential, probe, and list requests, while uploads
+remain app-owned. QuickCapture enablement and recording choices now share one
+settings coordinator; a feature runtime owns the clipboard listener and drains
+retired captures. Search master enablement now shares the settings coordinator;
+the application still owns its global engine, hotkey, and popup instances. The
+content-window ID/HWND registration now mutates WidgetManager's existing
+collections through one boundary; file-widget sessions remain with their
+existing dictionary but now use one identity-aware registration boundary.
+SurfaceRegistry retains the previous active host while a group-promotion
+candidate is prepared and rejects overlapping candidates. Member claims now
+transfer only through an explicit, validated group-topology commit; merge,
+detach, dissolve, and reorder wait for relevant Surface switches to settle.
+Non-reuse detach and dissolve now compensate replacement creation or first-frame
+failure after topology settings have been persisted; merge distinguishes failures
+before and after the durable save. Reused-HWND detach now keeps memory and Surface
+claims aligned with whichever topology was durably saved. Isolated Debug checks
+confirmed real HWND ownership for merge, detach, dissolve, and injected detach
+failures. Todo layout mode, its legacy wide-detail flag, and wide-layout auto
+selection now share the Todo settings coordinator. Todo's default filter,
+seven visible-tab flags, and tab-bar switch now commit together through
+that coordinator. Todo preview-line count and its two optional text-size
+overrides now use the same writer while retaining global-size inheritance and
+the existing appearance-preview timing. Todo new-task placement and editor
+Enter behavior use that writer too. Todo completed-task visibility, footer
+options, and tab style now use the same writer. Todo feature-default restoration
+also delegates reminder preferences to the coordinator; the settings page no
+longer writes Todo fields directly. QuickCapture's default view, three visible
+tabs, and tab-bar switch now commit through its settings coordinator without
+refreshing the clipboard listener for navigation-only changes. QuickCapture
+tab style, created-time visibility, and preview-line count now use a separate
+presentation snapshot in the same coordinator. The recent-record limit and its
+destructive trim are now owned by that coordinator: it coalesces queued values,
+reports trim failures, and drains active work on shutdown. QuickCapture's
+optional list and content text-size overrides also use that coordinator;
+stored zero continues to inherit the global text size without being rewritten
+as an explicit override during settings refresh.
+
+## 2026-09-29 state snapshot
+
+The first architecture-optimization phase closed at batch 51. The facts below
+are the settled end state on top of the historical sections underneath; the
+per-batch record lives in
+[architecture-optimization-progress-20260922.md](architecture-optimization-progress-20260922.md)
+(batches 1-51, full log).
+
+- Settings shell. `SettingsViewModel` went from 33 partials / 11,495 lines to
+  23 partials / 3,941 lines through the batch 29-50 settings-coordinator
+  migration and facade retirement. All settings-page writes and binding
+  surfaces are owned by the settings coordinators (13 per the batch-50
+  contract; `PerformanceSettingsCoordinator` joined as the 14th in batch 50)
+  and the 16 Features editor VMs. General (language / auto-start) and About
+  (update card) stay on the shell by the batch-50 verdict: host-lifeline
+  sections whose writers are services the Features layer must not reference.
+- P/Invoke. Non-Platform declarations are a hard zero since batch 31: all 270
+  declarations live under `src/DeskBox/Platform`.
+- AppSettings. Re-qualified by batch 51 as a frozen on-disk wire contract:
+  the 220 passthroughs are pure disk-schema mapping and cannot be deleted,
+  slice-direct serialization cannot stay byte-equivalent, and runtime
+  dependencies should read through slices. Growing or shrinking the facade is
+  a disk schema change and requires a versioned migration.
+- Widget content. Seven widget kinds are unified on `WidgetContentAdapterBase`
+  (the adapter owns the view model and a lazy view; the leaf can be dropped).
+  Search's cold subscription no longer materializes a tree.
+- Device layer. `widget-layout.json` is the sealed home for layout state
+  (batch 30 verification). `IFeatureRuntime` and `FeatureRuntimeRegistry` are
+  formalized contracts (batch 32): idempotent Start/Dispose semantics,
+  reverse-registration shutdown sweep, leak isolation.
+- Tests and AOT gates. The full suite grew from 4,073 to 4,487 tests. The AOT
+  gates are WMC1510 = 864 (zero touch), the nameof-count ratchets (shell AOT
+  bridge = 33; per-editor bridges pinned by their own tests), and the
+  21-scenario managed-UI smoke matrix in `scripts/run-aot-managed-ui-smoke.ps1`.
 
 This document describes the current architecture after the 1.2.0 widget foundation work. It is intended as the short, current-state handoff for future maintenance. Historical plans and checkpoints live under the archive folders.
 
@@ -21,7 +104,7 @@ Current widget kinds are represented by `WidgetKind`.
 Current production widget categories:
 
 - `File`: file organizer / mapped folder widgets.
-- `QuickCapture`: the note and clipboard widget, still using a dedicated window.
+- `QuickCapture`: the note and clipboard widget, now using the shared content-window path.
 - `Todo`: content-type feature widget using `ContentWidgetWindow`.
 - `Music`: content-type feature widget using `ContentWidgetWindow` and Windows media sessions.
 - `Weather`: content-type feature widget using `ContentWidgetWindow`, Open-Meteo API, and adaptive responsive layouts.
@@ -78,6 +161,13 @@ Shared shell and window helpers:
 - `src/DeskBox/Services/WidgetTrayAnimationController.cs`
 - `src/DeskBox/Services/WidgetTitleBarMetrics.cs`
 - `src/DeskBox/Services/WidgetSessionManager.cs`
+
+Display binding (widgets pinned to a display by hardware identity; requirements in `docs/requirements/widget-screen-binding.md`):
+
+- `src/DeskBox/Services/WidgetScreenCatalog.cs`: enumerates monitors into stable identities (PnP device-interface id via `Win32Helper.ResolveStableMonitorId`, rejecting unstable `\\.\DISPLAYn` fallbacks) and resolves bound widgets/groups to a target work area.
+- `src/DeskBox/Services/WidgetScreenMenuBuilder.cs`: builds the per-widget/group "show on" context-menu section (auto / follow primary / pinned to a named display).
+- `src/DeskBox/Views/SettingsSections/DisplaySettingsSection.xaml(.cs)`: the Displays settings page — arrangement preview (accent-filled selection applied in code-behind), identify overlay trigger, per-screen widget lists with inline rebind combos, pin-all, and the clearable default display for new widgets.
+- `src/DeskBox/Views/DisplayIdentifyOverlayWindow.cs`: borderless topmost per-monitor overlay that flashes the display number and fades out (classic layered-window alpha).
 
 Current windows:
 
@@ -422,7 +512,7 @@ QuickCapture data:
 - `%LocalAppData%/DeskBox/data/quick-capture/images/...`
 - `%LocalAppData%/DeskBox/data/quick-capture/thumbnails/...`
 
-Uninstalling the app may remove binaries but should not be assumed to remove `%LocalAppData%/DeskBox`. This is user data.
+Uninstalling the app may remove binaries but should not be assumed to remove `%LocalAppData%/DeskBox`. This is user data. (Correction 2026-10-04: this holds for the direct-install channel. The store build's `%LocalAppData%` writes are redirected by MSIX AppData write virtualization to `Packages/[PFN]/LocalCache`, which is removed on uninstall and preserved only across same-PackageFamilyName updates — see `module-boundary-roadmap-20260918.md`.)
 
 ## Adding A New Content Widget
 

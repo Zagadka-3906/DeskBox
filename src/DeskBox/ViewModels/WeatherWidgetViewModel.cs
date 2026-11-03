@@ -1,10 +1,13 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using DeskBox.Contracts;
 using DeskBox.Helpers;
 using DeskBox.Models;
 using DeskBox.Services;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.UI;
 
 namespace DeskBox.ViewModels;
@@ -61,6 +64,7 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
     private string _temperatureUnit = SettingsService.WeatherTemperatureUnitCelsius;
     private string _windSpeedUnit = SettingsService.WeatherWindSpeedUnitKmh;
     private string _skin = SettingsService.WeatherSkinStandard;
+    private string _iconStyle = SettingsService.WeatherIconStyleFluent;
     private bool _showForecast = true;
     private bool _showSunrise = true;
     private bool _showUvIndex = true;
@@ -73,8 +77,12 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
     // Current weather display values
     private string _currentTemperatureText = "--\u00B0";
     private string _currentDescription = string.Empty;
-    private string _currentEmoji = "\u2600\uFE0F";
     private string _currentIconGlyph = "\uE706";
+    // Materialized lazily by the CurrentIcon getter: constructing an
+    // SvgImageSource needs a live XAML runtime, which headless test hosts
+    // do not have (the old eager field initializer made every view-model
+    // construction throw COMException there).
+    private ImageSource? _currentIcon;
     private string _apparentTemperatureText = string.Empty;
     private string _humidityText = string.Empty;
     private string _windText = string.Empty;
@@ -91,6 +99,7 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
     private string _locationDisplay = string.Empty;
     private bool _isDay = true;
     private bool _hasData;
+    private bool _hasAttemptedRefresh;
     private int _currentWeatherCode;
     private WeatherCodeMapper.WeatherCondition _currentCondition = WeatherCodeMapper.WeatherCondition.Unknown;
 
@@ -168,6 +177,7 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
             if (SetProperty(ref _isRefreshing, value))
             {
                 OnPropertyChanged(nameof(LoadingVisibility));
+                OnPropertyChanged(nameof(ErrorVisibility));
             }
         }
     }
@@ -196,10 +206,13 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
         private set => SetProperty(ref _currentDescription, value);
     }
 
-    public string CurrentEmoji
+    /// <summary>Bundled SVG icon for the current condition.
+    /// Lazily materializes the placeholder from the last known code/day pair
+    /// so construction stays XAML-runtime-free.</summary>
+    public ImageSource? CurrentIcon
     {
-        get => _currentEmoji;
-        private set => SetProperty(ref _currentEmoji, value);
+        get => _currentIcon ??= CreateIcon(_currentWeatherCode, IsDay);
+        private set => SetProperty(ref _currentIcon, value);
     }
 
     /// <summary>Segoe Fluent Icons glyph for the current weather condition.</summary>
@@ -327,6 +340,7 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
             if (SetProperty(ref _hasData, value))
             {
                 OnPropertyChanged(nameof(LoadingVisibility));
+                OnPropertyChanged(nameof(ErrorVisibility));
             }
         }
     }
@@ -336,6 +350,16 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
     /// Existing weather remains visible during manual and automatic refreshes.
     /// </summary>
     public Visibility LoadingVisibility => _isRefreshing && !_hasData
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    /// <summary>
+    /// First-load failure state: a refresh has been attempted, nothing is in
+    /// hand and no fetch is running. Success hides it via HasData; the next
+    /// automatic retry hides it via IsRefreshing — both without extra flags.
+    /// Stale data (HasData with a past timestamp) deliberately stays visible.
+    /// </summary>
+    public Visibility ErrorVisibility => _hasAttemptedRefresh && !_hasData && !_isRefreshing
         ? Visibility.Visible
         : Visibility.Collapsed;
 
@@ -430,7 +454,7 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
         _ => Math.Min(32, TextSize + 18)
     };
 
-    // Emoji font size scales with layout
+    // Condition-icon size scales with layout
     public double CurrentEmojiSize => _layoutMode == "Mini" ? 30 : _layoutMode == "Compact" ? 36 : 48;
     public double ForecastEmojiSize => _layoutMode == "Expanded" ? 18 : 15;
     public double ForecastHourTextSize => CaptionTextSize;
@@ -453,7 +477,6 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
     // Rich skin gradient colors (updated based on weather condition)
     public Color RichBackdropTopColor { get; private set; } = Color.FromArgb(0xFF, 0x28, 0x5F, 0x8E);
     public Color RichBackdropBottomColor { get; private set; } = Color.FromArgb(0xFF, 0x3C, 0x76, 0x94);
-    public Color RichOverlayColor { get; private set; } = Color.FromArgb(0x20, 0xFF, 0xFF, 0xFF);
 
     // Visibility helpers for settings-driven content
     public Visibility ForecastVisibility => _showForecast && !_isWeekView ? Visibility.Visible : Visibility.Collapsed;
@@ -667,6 +690,9 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
     public string RefreshTooltip => _localizationService.T("Common.Refresh");
 
     public string LoadingText => _localizationService.T("Weather.Loading");
+    public string ErrorTitle => _localizationService.T("Weather.Error.Title");
+    public string ErrorBody => _localizationService.T("Weather.Error.Body");
+    public string ErrorRetryText => _localizationService.T("Weather.Error.Retry");
     public string HumidityLabel => _localizationService.T("Weather.Metric.Humidity");
     public string WindLabel => _localizationService.T("Weather.Metric.Wind");
     public string PrecipitationLabel => _localizationService.T("Weather.Metric.Precipitation");
@@ -793,6 +819,18 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
             OnPropertyChanged(nameof(ClearAnimationVisibility));
             // Re-evaluate light text need when skin changes
             UpdateRichSkinColors();
+        }
+
+        if (_iconStyle != settings.WeatherIconStyle)
+        {
+            _iconStyle = WeatherOptionKinds.NormalizeIconStyle(settings.WeatherIconStyle);
+            changed = true;
+            OnPropertyChanged(nameof(CurrentIcon));
+            if (_weatherData?.Current is not null)
+            {
+                CurrentIcon = CreateIcon(
+                    _weatherData.Current.WeatherCode, IsDay);
+            }
         }
 
         OnPropertyChanged(nameof(WidgetCornerRadius));
@@ -950,8 +988,9 @@ public sealed partial class WeatherWidgetViewModel : ObservableObject, IDisposab
 public sealed partial class WeatherDayViewModel : ObservableObject
 {
     public string DayLabel { get; set; } = string.Empty;
-    public string Emoji { get; set; } = "\u2600\uFE0F";
     public string IconGlyph { get; set; } = "\uE706";
+    public ImageSource? Icon { get; set; }
+
     public string Description { get; set; } = string.Empty;
     public string TempMaxText { get; set; } = string.Empty;
     public string TempMinText { get; set; } = string.Empty;
@@ -974,8 +1013,8 @@ public sealed partial class WeatherHourViewModel : ObservableObject
     public string HourLabel { get; set; } = string.Empty;
     public string TemperatureText { get; set; } = string.Empty;
     public string PrecipitationText { get; set; } = string.Empty;
-    public string Emoji { get; set; } = "\u2600\uFE0F";
     public string IconGlyph { get; set; } = "\uE706";
+    public ImageSource? Icon { get; set; }
 
     /// <summary>Whether this is the current hour (used for highlight).</summary>
     public bool IsCurrentHour { get; set; }

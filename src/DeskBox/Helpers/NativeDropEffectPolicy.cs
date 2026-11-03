@@ -83,7 +83,9 @@ internal static class NativeDropEffectPolicy
         uint keyState,
         bool defaultMove,
         bool followWindows = false,
-        bool sameVolume = true)
+        bool sameVolume = true,
+        bool canCopy = true,
+        bool canMove = true)
     {
         FileDropIntent intent = FileDropIntentPolicy.ResolveMappedTransfer(
             hasMappedFolder: true,
@@ -91,6 +93,8 @@ internal static class NativeDropEffectPolicy
             controlDown: (keyState & ControlKeyState) != 0,
             shiftDown: (keyState & ShiftKeyState) != 0,
             defaultMove: defaultMove,
+            canCopy: canCopy,
+            canMove: canMove,
             altDown: (keyState & AltKeyState) != 0,
             followWindows: followWindows,
             sameVolume: sameVolume);

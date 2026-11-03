@@ -1,4 +1,4 @@
-namespace DeskBox.Tests;
+﻿namespace DeskBox.Tests;
 
 public sealed class AotStage5B4C1B2BContractTests
 {
@@ -99,8 +99,13 @@ public sealed class AotStage5B4C1B2BContractTests
         Assert.Contains("CreateItemFlyout(target)", probe, StringComparison.Ordinal);
         Assert.Contains("Common.Properties", probe, StringComparison.Ordinal);
         Assert.Contains("_hostWindowHandle == IntPtr.Zero", probe, StringComparison.Ordinal);
-        Assert.Contains("MenuFlyoutItemAutomationPeer", probe, StringComparison.Ordinal);
-        Assert.Contains("PatternInterface.Invoke", probe, StringComparison.Ordinal);
+        Assert.Contains("AotContextMenuProbe.InvokeProvider", probe, StringComparison.Ordinal);
+        Assert.Contains(
+            "PatternInterface.Invoke",
+            ReadRepositoryFile(
+                "src/DeskBox/Controls/WidgetContents/" +
+                "FileSurfaceContent.AotContextMenuProbe.cs"),
+            StringComparison.Ordinal);
         Assert.Contains("IInvokeProvider", probe, StringComparison.Ordinal);
         Assert.Contains("Task.Run(() =>", probe, StringComparison.Ordinal);
         Assert.Contains("ObserveAndCloseOwnedDialogAsync", probe, StringComparison.Ordinal);
@@ -140,7 +145,7 @@ public sealed class AotStage5B4C1B2BContractTests
         Assert.Contains("run-aot-file-properties-smoke.ps1", master, StringComparison.Ordinal);
         Assert.Contains("[Guid]::NewGuid().ToString(\"N\")", runner, StringComparison.Ordinal);
         Assert.Contains("file-properties-preview-$runId", runner, StringComparison.Ordinal);
-        Assert.Contains("profile 49 / schema 46", runner, StringComparison.Ordinal);
+        Assert.Contains("profile 59 / schema 55", runner, StringComparison.Ordinal);
         Assert.Contains("Refusing to replace an existing file Properties preview root", runner, StringComparison.Ordinal);
         Assert.Contains("Refusing to replace an existing file Properties recovery root", runner, StringComparison.Ordinal);
         Assert.Contains("properties-$runId.txt", runner, StringComparison.Ordinal);
@@ -202,7 +207,7 @@ public sealed class AotStage5B4C1B2BContractTests
         Assert.Contains("stage5B4C1B2BMissingRunnerPatterns", audit, StringComparison.Ordinal);
         Assert.Contains("stage5B4C1B2BForbiddenScopePatterns", audit, StringComparison.Ordinal);
         Assert.Contains("stage5B4C1B2BRustAbiUnchanged", audit, StringComparison.Ordinal);
-        Assert.Contains("stage5B4C1B2BExpectedWmc1510Count = 866", audit, StringComparison.Ordinal);
+        Assert.Contains("stage5B4C1B2BExpectedWmc1510Count = 790", audit, StringComparison.Ordinal);
         Assert.Contains("$RequiredAuditProfileVersion = 59", launcher, StringComparison.Ordinal);
         Assert.Contains("$RequiredSummarySchemaVersion = 55", launcher, StringComparison.Ordinal);
         Assert.Contains("stage 5B-4C3B2B1", project, StringComparison.Ordinal);

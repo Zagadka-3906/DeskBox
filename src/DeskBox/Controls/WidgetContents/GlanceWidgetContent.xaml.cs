@@ -42,6 +42,7 @@ public sealed partial class GlanceWidgetContent : UserControl
     private bool _isCalendarWheelGestureActive;
     private bool _isCalendarWheelNavigationInProgress;
     private int _imageLoadVersion;
+    private bool _shellCustomBackgroundActive;
     private long? _calendarDisplayModeCallbackToken;
     private string? _calendarImagePalettePath;
     private GlanceImagePalette? _calendarImagePalette;
@@ -87,6 +88,31 @@ public sealed partial class GlanceWidgetContent : UserControl
         QueueCalendarImagePaletteUpdate(_viewModel.CurrentImagePath);
         BeginLoadImage(_viewModel.CurrentImagePath);
         UpdateLoadingIndicator();
+    }
+
+    /// <summary>
+    /// Toggles whether a user-set widget background (applied by the hosting
+    /// window) suppresses this surface's own background image.
+    /// </summary>
+    internal void SetShellCustomBackgroundActive(bool active)
+    {
+        if (_shellCustomBackgroundActive == active)
+        {
+            return;
+        }
+
+        _shellCustomBackgroundActive = active;
+        if (_isLoaded)
+        {
+            if (active)
+            {
+                ClearBackgroundImage();
+            }
+            else
+            {
+                BeginLoadImage(_viewModel.CurrentImagePath);
+            }
+        }
     }
 
     private void UserControl_Unloaded(object sender, RoutedEventArgs e)
@@ -573,27 +599,16 @@ public sealed partial class GlanceWidgetContent : UserControl
 
         DateOnly date = DateOnly.FromDateTime(item.Date.DateTime);
         _realizedCalendarDays[item] = date;
-        ApplyCalendarDayDecoration(item, date);
+        ApplyCalendarDayDecoration(item, date, DateOnly.FromDateTime(DateTime.Today));
         if (sender.DisplayMode == CalendarViewDisplayMode.Month)
         {
             QueueCalendarMonthSync();
         }
     }
 
-    private void ApplyCalendarDayDecoration(CalendarViewDayItem item, DateOnly date)
+    private void ApplyCalendarDayDecoration(CalendarViewDayItem item, DateOnly date, DateOnly today)
     {
         GlanceCalendarDay? day = _viewModel.FindCalendarDay(date);
-        bool showSecondaryText = _viewModel.ShowCalendarTraditionalDetails;
-        string secondaryText = showSecondaryText
-            ? !string.IsNullOrWhiteSpace(day?.FestivalText)
-                ? day.FestivalText
-                : day?.TraditionalText ?? string.Empty
-            : string.Empty;
-        bool hasSecondaryText = !string.IsNullOrWhiteSpace(secondaryText);
-        bool isFestival = hasSecondaryText && day?.HasFestival == true;
-        bool isCurrentMonth = day?.IsCurrentMonth ??
-            (date.Year == _viewModel.DisplayedCalendarMonth.Year &&
-             date.Month == _viewModel.DisplayedCalendarMonth.Month);
         double itemHeight = _viewModel.CalendarDayItemMinimumHeight;
         if (Math.Abs(item.MinHeight - itemHeight) >= 0.1)
         {
@@ -604,15 +619,14 @@ public sealed partial class GlanceWidgetContent : UserControl
             item.Height = itemHeight;
         }
 
-        var decoration = new GlanceCalendarDayDecoration(
-            day?.DayText ?? date.Day.ToString(
-                System.Globalization.CultureInfo.GetCultureInfo(_viewModel.CalendarLanguage)),
-            secondaryText,
-            hasSecondaryText,
-            date == DateOnly.FromDateTime(DateTime.Today),
-            isFestival,
-            isCurrentMonth ? 1.0 : 0.42,
-            !isCurrentMonth ? 0.34 : isFestival ? 0.88 : 0.62);
+        GlanceCalendarDayDecoration decoration =
+            GlanceCalendarDayDecorationBuilder.Build(
+                day,
+                date,
+                today,
+                _viewModel.ShowCalendarTraditionalDetails,
+                _viewModel.DisplayedCalendarMonth,
+                _viewModel.CalendarLanguage);
         if (!Equals(item.Tag, decoration))
         {
             item.Tag = decoration;
@@ -621,9 +635,10 @@ public sealed partial class GlanceWidgetContent : UserControl
 
     private void RefreshRealizedCalendarDays()
     {
+        DateOnly today = DateOnly.FromDateTime(DateTime.Today);
         foreach ((CalendarViewDayItem item, DateOnly date) in _realizedCalendarDays.ToArray())
         {
-            ApplyCalendarDayDecoration(item, date);
+            ApplyCalendarDayDecoration(item, date, today);
         }
 
         UpdateTraditionalCalendarTitleVisibility();
@@ -812,6 +827,15 @@ public sealed partial class GlanceWidgetContent : UserControl
 
     private void BeginLoadImage(string? path, bool allowTransition = true)
     {
+        // A user-set widget background wins over this surface's own
+        // background image (per-widget customization rule): yield by keeping
+        // the layer clear; removing the override restores it.
+        if (_shellCustomBackgroundActive)
+        {
+            ClearBackgroundImage();
+            return;
+        }
+
         int version = ++_imageLoadVersion;
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
@@ -858,7 +882,13 @@ public sealed partial class GlanceWidgetContent : UserControl
 
         ImageBrush brush = CreateImageBrush(bitmap);
         incoming.Background = brush;
-        bitmap.UriSource = new Uri(path, UriKind.Absolute);
+        // Rotation pins every decoded frame of the set when it goes through
+        // the URI-keyed framework cache, which has no eviction API — and
+        // small sets are the common case, so a size threshold cannot bound
+        // it. Streamed sources stay out of that cache and keep the live
+        // footprint at ~2 bitmaps; the crossfade runs only after
+        // ImageOpened, so the re-decode on each rotation is invisible.
+        _ = GlanceImageStreamLoader.LoadAsync(bitmap, path);
     }
 
     private void QueueImageQualityRefresh()

@@ -49,12 +49,6 @@ public partial class WidgetViewModel
     /// <summary>
     /// Add file or folder items to the widget, or move/copy them into a mapped folder.
     /// </summary>
-    [RelayCommand]
-    public async Task AddItemsAsync(IEnumerable<string> paths)
-    {
-        await ImportPathsAsync(paths);
-    }
-
     public async Task<IReadOnlyList<string>> ImportPathsAsync(
         IEnumerable<string> paths,
         bool? moveWhenMapped = null,
@@ -528,12 +522,34 @@ public partial class WidgetViewModel
             return 0;
         }
 
-        var operation = await _organizerService.MoveItemsBackToDesktopAsync(
-            Config,
-            Name,
-            targets.Select(item => item.Path),
-            useShellProgress,
-            ownerWindowHandle);
+        OrganizerOperationResult operation;
+        try
+        {
+            operation = await _organizerService.MoveItemsBackToDesktopAsync(
+                Config,
+                Name,
+                targets.Select(item => item.Path),
+                useShellProgress,
+                ownerWindowHandle);
+        }
+        catch (FileService.FileTransferCanceledException ex)
+        {
+            // A shell transfer the user cancelled mid-way: the organizer
+            // already recorded the completed set's history, so reconcile
+            // the view and return the count — the surface turns it into the
+            // same moved-N/none-moved feedback the retired legacy bridge's
+            // silent partial return used to produce.
+            var canceledMovedPaths = ex.CompletedResults
+                .Select(result => result.SourcePath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in targets.Where(item => canceledMovedPaths.Contains(item.Path)))
+            {
+                RemoveItemByPath(item.Path);
+            }
+
+            RemoveStackMemberOverridePaths(canceledMovedPaths);
+            return canceledMovedPaths.Count;
+        }
 
         // CompletedItems (not the persisted History entry) carries this
         // run's receipts: oversized batches are compacted to a summary
@@ -552,7 +568,8 @@ public partial class WidgetViewModel
         return movedSourcePaths.Count;
     }
 
-    public async Task RefreshFromConfigAsync()
+    public async Task RefreshFromConfigAsync(
+        bool clearIconCacheBeforeHydration = true)
     {
         using var perfScope = PerformanceLogger.Measure(
             "WidgetViewModel.RefreshFromConfig",
@@ -567,10 +584,20 @@ public partial class WidgetViewModel
         OnPropertyChanged(nameof(FollowsDefaultStoragePath));
         ApplyStackSettings();
 
+        if (!clearIconCacheBeforeHydration)
+        {
+            // The freshness ledger at the refresh merge owns icon
+            // invalidation now; a recovery refresh additionally resets
+            // retry-state markers so timed-out sources get a fresh attempt —
+            // the wake-recovery property the blanket clear used to carry,
+            // minus the visible placeholder churn on mapped folders.
+            _fileService.ResetIconTransientFailures();
+        }
+
         await ConfigureFolderWatchersAsync(CurrentFolderPath);
         await ReloadFolderContentsAsync(
             CurrentFolderPath!,
-            clearIconCacheBeforeHydration: true);
+            clearIconCacheBeforeHydration);
         UpdateDependentProperties();
     }
 
@@ -649,79 +676,6 @@ public partial class WidgetViewModel
         {
             _folderRefreshGate.Release();
         }
-    }
-
-    public async Task UpdateMappedFolderPathAsync(string folderPath)
-    {
-        if (string.IsNullOrWhiteSpace(folderPath))
-        {
-            return;
-        }
-
-        string normalizedPath = Path.GetFullPath(folderPath);
-        if (App.Current?.WidgetManager is { } pathWidgetManager)
-        {
-            pathWidgetManager.EnsureFileWidgetPathAvailable(
-                normalizedPath,
-                Config.Id,
-                candidateFollowsDefaultStoragePath: false);
-        }
-        else
-        {
-            WidgetConfig? conflict = _settingsService.Settings.Widgets.FirstOrDefault(widget =>
-                widget.WidgetKind == WidgetKind.File &&
-                !string.Equals(widget.Id, Config.Id, StringComparison.Ordinal) &&
-                !string.IsNullOrWhiteSpace(widget.MappedFolderPath) &&
-                WidgetManager.IsFileWidgetPathConflict(
-                    normalizedPath,
-                    candidateFollowsDefaultStoragePath: false,
-                    widget));
-            string managedStorageRoot =
-                SettingsService.NormalizeManagedStorageRootPath(
-                    _settingsService.Settings.DefaultManagedStorageRootPath);
-            if (conflict is not null ||
-                FileService.PathsOverlap(normalizedPath, managedStorageRoot))
-            {
-                throw new InvalidOperationException(_localizationService.Format(
-                    "Widget.Error.FileWidgetPathConflict",
-                    conflict?.Name ??
-                    _localizationService.T("WidgetTitleIcon.Label.ManagedStorage")));
-            }
-        }
-
-        if (!FileService.TryResolveExistingPathForTraversal(
-                normalizedPath,
-                out string traversalPath))
-        {
-            Directory.CreateDirectory(normalizedPath);
-            traversalPath = FileService.TryResolveExistingPathForTraversal(
-                normalizedPath,
-                out string createdTraversalPath)
-                ? createdTraversalPath
-                : normalizedPath;
-        }
-
-        Config.WidgetKind = WidgetKind.File;
-        Config.IsDisabled = false;
-        Config.FollowsDefaultStoragePath = false;
-        Config.ManagedFolderName = null;
-        Config.MappedFolderPath = normalizedPath;
-        Config.Items.Clear();
-        ResetAddedAtTracking();
-        MappedFolderPath = normalizedPath;
-        _mappedFolderTraversalPath = traversalPath;
-        SetCurrentFolderPath(traversalPath);
-        OnPropertyChanged(nameof(FollowsDefaultStoragePath));
-
-        if (App.Current?.WidgetManager is { } widgetManager)
-        {
-            widgetManager.SyncMappedWidgetShortcut(Config.Id);
-        }
-
-        _settingsService.UpdateWidget(Config);
-        await ConfigureFolderWatchersAsync(traversalPath);
-        await ReloadFolderContentsAsync(traversalPath);
-        UpdateDependentProperties();
     }
 
     public Task HandleItemsMovedOutAsync(IEnumerable<string> sourcePaths)
@@ -992,6 +946,83 @@ public partial class WidgetViewModel
         return new FileDeleteBatchResult(deletedCount, failures);
     }
 
+    /// <summary>
+    /// Recycles dropped paths for the Recycle Bin namespace tile — the
+    /// bin-drop entry point, where the payload is a list of paths (external
+    /// desktop/Explorer files) rather than <see cref="WidgetItem"/>s. The
+    /// Shell delete carries its own confirmation per the user's Explorer
+    /// settings, exactly like the item delete pipeline. Model entries whose
+    /// paths were actually deleted are removed in the same pass.
+    /// </summary>
+    public async Task<FileDeleteBatchResult> DeleteDroppedPathsForBinAsync(
+        IReadOnlyList<string> paths,
+        IntPtr ownerHandle)
+    {
+        string[] targets = paths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path =>
+            {
+                try
+                {
+                    return Path.GetFullPath(path);
+                }
+                catch
+                {
+                    return string.Empty;
+                }
+            })
+            .Where(path => path.Length > 0 &&
+                (File.Exists(path) || Directory.Exists(path)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (targets.Length == 0)
+        {
+            return new FileDeleteBatchResult(0, []);
+        }
+
+        int deletedCount = 0;
+        var failures = new List<FileDeleteFailure>();
+        if (ownerHandle == IntPtr.Zero)
+        {
+            return new FileDeleteBatchResult(0, failures);
+        }
+
+        try
+        {
+            IReadOnlySet<string> deletedPaths =
+                await _fileService.DeleteEntriesWithShellAsync(
+                    targets,
+                    recycle: true,
+                    ownerHandle);
+            deletedCount = deletedPaths.Count;
+
+            // Keep the model in sync: same-widget drops arrive as paths, and
+            // the watcher refresh alone would leave a stale tile visible
+            // until the next folder pass.
+            foreach (WidgetItem item in Items.ToList())
+            {
+                if (deletedPaths.Contains(Path.GetFullPath(item.Path)))
+                {
+                    Items.Remove(item);
+                    RemoveFileAddedAt(item.Path);
+                }
+            }
+
+            NormalizeSortOrder();
+            RemoveStackMemberOverridePaths(
+                targets.Where(deletedPaths.Contains));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            failures.Add(new FileDeleteFailure(
+                targets[0],
+                Path.GetFileName(targets[0]),
+                ex.Message));
+        }
+
+        return new FileDeleteBatchResult(deletedCount, failures);
+    }
+
     public void UpdateBounds(double x, double y, double width, double height, bool persist)
     {
         Config.X = x;
@@ -1048,17 +1079,5 @@ public partial class WidgetViewModel
         IsSizeLocked = value;
         Config.IsSizeLocked = value;
         _settingsService.UpdateWidget(Config);
-    }
-
-    [RelayCommand]
-    public void TogglePositionLock()
-    {
-        SetPositionLocked(!IsPositionLocked);
-    }
-
-    [RelayCommand]
-    public void ToggleSizeLock()
-    {
-        SetSizeLocked(!IsSizeLocked);
     }
 }

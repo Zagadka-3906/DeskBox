@@ -116,15 +116,6 @@ public sealed class AppUpdateServiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("**拖拽更加可靠。** 使用 `RequestedOperation`。", "拖拽更加可靠。 使用 RequestedOperation。")]
-    [InlineData("## Highlights\n- Read [details](https://deskbox.fun/download)\n- Fixed alignment", "Highlights Read details Fixed alignment")]
-    [InlineData(null, "")]
-    public void UpdateSummaryPreview_ShowsReadableText(string? markdown, string expected)
-    {
-        Assert.Equal(expected, SettingsViewModel.GetUpdateSummaryPreview(markdown));
-    }
-
-    [Theory]
     [InlineData("1.2.1", "1.2.2", true)]
     [InlineData("1.2.1", "v1.2.2", true)]
     [InlineData("1.2.1", "1.2.2-beta.1", true)]
@@ -417,6 +408,50 @@ public sealed class AppUpdateServiceTests : IDisposable
             out _));
     }
 
+    [Fact]
+    public async Task ContentManifestFetch_AcceptsNotesOnlyManifest_AndRejectsInstallerOnlyManifest()
+    {
+        // The Store channel's synthesized manifest carries a
+        // ms-windowsstore:// download target; the display path must accept a
+        // manifest that has notes but no installer link at all.
+        string notesOnlyJson =
+            """{"schemaVersion":1,"channel":"stable","version":"1.5.9","releaseNotesUrl":"https://github.com/Tianyu199509/DeskBox/releases/tag/v1.5.9"}""";
+        string installerOnlyJson =
+            """{"schemaVersion":1,"channel":"stable","version":"1.5.9","downloadUrl":"https://deskbox.fun/DeskBox_Setup.exe","sha256":"aa"}""";
+
+        var notesClient = CreateHttpClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(notesOnlyJson, Encoding.UTF8, "application/json")
+        });
+        AppUpdateManifest? accepted = await AppUpdateService.FetchContentManifestAsync(
+            "https://deskbox.fun/update/stable.json", notesClient, CancellationToken.None);
+        Assert.NotNull(accepted);
+        Assert.Equal("1.5.9", accepted!.Version);
+        Assert.True(AppUpdateManifest.IsSafeReleaseNotesUrl(accepted.ReleaseNotesUrl));
+
+        var installerClient = CreateHttpClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(installerOnlyJson, Encoding.UTF8, "application/json")
+        });
+        AppUpdateManifest? rejected = await AppUpdateService.FetchContentManifestAsync(
+            "https://deskbox.fun/update/stable.json", installerClient, CancellationToken.None);
+        Assert.Null(rejected);
+    }
+
+    [Fact]
+    public void ReleaseNotesOnlyManifest_PointsAtGitHubTagForExactVersion()
+    {
+        AppUpdateManifest manifest = AppUpdateService.CreateReleaseNotesOnlyManifest("1.5.9");
+
+        Assert.Equal("1.5.9", manifest.Version);
+        Assert.Equal(
+            "https://github.com/Tianyu199509/DeskBox/releases/tag/v1.5.9",
+            manifest.ReleaseNotesUrl);
+        Assert.True(AppUpdateManifest.IsSafeReleaseNotesUrl(manifest.ReleaseNotesUrl));
+        Assert.True(manifest.HasReleaseNotesOrUrl);
+        Assert.False(AppUpdateService.IsManifestUsable(manifest));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempRoot))
@@ -480,5 +515,58 @@ public sealed class AppUpdateServiceTests : IDisposable
         };
 
         Assert.False(AppUpdateService.IsManifestUsable(manifest));
+    }
+
+    public static TheoryData<string, string> AppCultureToInstallerLanguageCases => new()
+    {
+        { LocalizationService.LanguageChinese, "chinesesimplified" },
+        { LocalizationService.LanguageChineseTraditional, "chinesetraditional" },
+        { LocalizationService.LanguageEnglish, "english" },
+        { LocalizationService.LanguageJapanese, "japanese" },
+        { LocalizationService.LanguageGerman, "german" },
+        { LocalizationService.LanguagePortuguese, "brazilianportuguese" },
+        { LocalizationService.LanguageHindi, "hindi" },
+        { LocalizationService.LanguageSpanish, "spanish" },
+        { LocalizationService.LanguageFrench, "french" },
+        { LocalizationService.LanguageArabic, "arabic" },
+        { LocalizationService.LanguageBengali, "bengali" },
+        { LocalizationService.LanguageRussian, "russian" },
+        { LocalizationService.LanguageKorean, "korean" },
+    };
+
+    [Theory]
+    [MemberData(nameof(AppCultureToInstallerLanguageCases))]
+    public void InstallerLanguageMapping_CoversEveryAppLanguage(
+        string appCultureName,
+        string installerLanguage)
+    {
+        // Reverse of InstallLanguageCode in installer/DeskBox.iss (identical
+        // [Languages] in DeskBox.arm64.iss) — extend both sides together.
+        Assert.Equal(installerLanguage, AppUpdateService.MapAppCultureToInstallerLanguage(appCultureName));
+    }
+
+    [Fact]
+    public void InstallerLanguageMapping_RejectsValuesOutsideTheAppLanguageDomain()
+    {
+        Assert.Null(AppUpdateService.MapAppCultureToInstallerLanguage(null));
+        Assert.Null(AppUpdateService.MapAppCultureToInstallerLanguage(string.Empty));
+        Assert.Null(AppUpdateService.MapAppCultureToInstallerLanguage(LocalizationService.LanguageSystem));
+        Assert.Null(AppUpdateService.MapAppCultureToInstallerLanguage("zh-HK"));
+        Assert.Null(AppUpdateService.MapAppCultureToInstallerLanguage("fr-CA"));
+    }
+
+    [Fact]
+    public void InstallerLanguageMapping_AgreesWithTheUpdaterWhitelist()
+    {
+        // The app-side mapping and the updater-side whitelist are two halves
+        // of one contract; every mapped name must survive the whitelist so
+        // the /LANG pin can never be silently dropped for a shipped language.
+        foreach (object?[] row in AppCultureToInstallerLanguageCases)
+        {
+            string installerLanguage = (string)row[1]!;
+            Assert.Equal(
+                installerLanguage,
+                DeskBox.Updater.Program.ResolveInstallerLanguage(installerLanguage));
+        }
     }
 }

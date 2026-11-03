@@ -1,4 +1,7 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
+using System.Reflection;
+using System.Reflection.Emit;
+using DeskBox.Models;
 
 namespace DeskBox.Tests;
 
@@ -13,6 +16,428 @@ namespace DeskBox.Tests;
 /// </summary>
 public sealed class ModuleBoundaryContractTests
 {
+    [Fact]
+    public void TodoSettingsPage_DoesNotWriteTodoFieldsDirectly()
+    {
+        string fields = string.Join("|", typeof(TodoSettingsSlice)
+            .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+            .Select(property => Regex.Escape(property.Name)));
+        Regex directWrite = new(
+            $@"\b(?:_settingsService\s*\.\s*Settings|settings)\s*\.\s*(?:Todo\s*\.\s*)?(?:{fields})\s*=(?!=)");
+        string[] violations = ProductionSource()
+            .Where(item => item.Path.StartsWith(
+                    "src/DeskBox/ViewModels/SettingsViewModel", StringComparison.Ordinal) &&
+                item.Path.EndsWith(".cs", StringComparison.Ordinal))
+            .SelectMany(item => directWrite.Matches(item.Source)
+                .Cast<Match>()
+                .Select(match => $"{item.Path}: {match.Value}"))
+            .ToArray();
+
+        Assert.True(violations.Length == 0,
+            "Todo settings writes belong to TodoSettingsCoordinator:\n" +
+            string.Join('\n', violations));
+    }
+
+    [Fact]
+    public void QuickCaptureSettingsPage_DoesNotWriteTabFieldsDirectly()
+    {
+        Regex directWrite = new(
+            @"\b(?:_settingsService\s*\.\s*Settings|settings)\s*\.\s*(?:QuickCapture\s*\.\s*)?QuickCapture(?:DefaultView|ShowTabBar|ShowRecordsTab|ShowPinnedTab|ShowRecentTab)\s*=(?!=)");
+        string[] violations = ProductionSource()
+            .Where(item => item.Path.StartsWith(
+                    "src/DeskBox/ViewModels/SettingsViewModel", StringComparison.Ordinal) &&
+                item.Path.EndsWith(".cs", StringComparison.Ordinal))
+            .SelectMany(item => directWrite.Matches(item.Source)
+                .Cast<Match>()
+                .Select(match => $"{item.Path}: {match.Value}"))
+            .ToArray();
+
+        Assert.True(violations.Length == 0,
+            "QuickCapture tab writes belong to QuickCaptureSettingsCoordinator:\n" +
+            string.Join('\n', violations));
+    }
+
+    [Fact]
+    public void QuickCaptureSettingsPage_DoesNotWritePresentationFieldsDirectly()
+    {
+        Regex directWrite = new(
+            @"\b(?:_settingsService\s*\.\s*Settings|settings)\s*\.\s*(?:QuickCapture\s*\.\s*)?QuickCapture(?:TabStyle|ShowCreatedTime|ItemPreviewLineCount)\s*=(?!=)");
+        string[] violations = ProductionSource()
+            .Where(item => item.Path.StartsWith(
+                    "src/DeskBox/ViewModels/SettingsViewModel", StringComparison.Ordinal) &&
+                item.Path.EndsWith(".cs", StringComparison.Ordinal))
+            .SelectMany(item => directWrite.Matches(item.Source)
+                .Cast<Match>()
+                .Select(match => $"{item.Path}: {match.Value}"))
+            .ToArray();
+
+        Assert.True(violations.Length == 0,
+            "QuickCapture presentation writes belong to QuickCaptureSettingsCoordinator:\n" +
+            string.Join('\n', violations));
+    }
+
+    [Fact]
+    public void QuickCaptureSettingsPage_DoesNotOwnRecentLimitTrim()
+    {
+        Regex directWrite = new(
+            @"\b(?:_settingsService\s*\.\s*Settings|settings)\s*\.\s*(?:QuickCapture\s*\.\s*)?QuickCaptureRecentLimit\s*=(?!=)");
+        (string Path, string Source)[] settingsPages = ProductionSource()
+            .Where(item => item.Path.StartsWith(
+                    "src/DeskBox/ViewModels/SettingsViewModel", StringComparison.Ordinal) &&
+                item.Path.EndsWith(".cs", StringComparison.Ordinal))
+            .ToArray();
+        string[] violations = settingsPages
+            .SelectMany(item => directWrite.Matches(item.Source)
+                .Cast<Match>()
+                .Select(match => $"{item.Path}: {match.Value}"))
+            .ToArray();
+        Assert.Empty(violations);
+        Assert.DoesNotContain("App.Current.QuickCaptureService.TrimRecentItemsAsync",
+            string.Join('\n', settingsPages.Select(item => item.Source)),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QuickCaptureSettingsPage_DoesNotWriteTextSizeOverridesDirectly()
+    {
+        Regex directWrite = new(
+            @"\b(?:_settingsService\s*\.\s*Settings|settings)\s*\.\s*(?:QuickCapture\s*\.\s*)?QuickCapture(?:ListTextSize|ContentTextSize)\s*=(?!=)");
+        string[] violations = ProductionSource()
+            .Where(item => item.Path.StartsWith(
+                    "src/DeskBox/ViewModels/SettingsViewModel", StringComparison.Ordinal) &&
+                item.Path.EndsWith(".cs", StringComparison.Ordinal))
+            .SelectMany(item => directWrite.Matches(item.Source)
+                .Cast<Match>()
+                .Select(match => $"{item.Path}: {match.Value}"))
+            .ToArray();
+
+        Assert.Empty(violations);
+    }
+
+    private static readonly IReadOnlyDictionary<string, int> BusinessGlobalAccessExpectedViolations =
+        new Dictionary<string, int>(StringComparer.Ordinal)
+    {
+        ["src/DeskBox/Models/WidgetItem.cs"] = 1,
+        ["src/DeskBox/Models/OrganizationHistoryEntry.cs"] = 1,
+        ["src/DeskBox/ViewModels/WidgetViewModel.Operations.cs"] = 3,
+        ["src/DeskBox/ViewModels/SettingsViewModel.AppearanceOptions.cs"] = 2,
+        ["src/DeskBox/ViewModels/QuickCaptureWidgetViewModel.Operations.cs"] = 1,
+        ["src/DeskBox/ViewModels/MusicWidgetViewModel.MediaInfo.cs"] = 3,
+        // Batch 38 moved the feature-section persisted writes into
+        // FeatureWidgetsSettingsCoordinator (and the Quick Capture editor
+        // group into QuickCaptureSettingsCoordinator), but the four
+        // App.Current accesses stay in the shell facade on purpose: the
+        // global-hotkey enable call, the feature-card enabled read-through
+        // and the two WidgetManager sync chains (feature reset + enable
+        // state) are host-side linkages that run around the coordinator's
+        // write, not settings writes.
+        ["src/DeskBox/ViewModels/SettingsViewModel.FeatureOptions.cs"] = 4,
+        ["src/DeskBox/ViewModels/SettingsViewModel.HotkeyAndStorage.cs"] = 1,
+        ["src/DeskBox/ViewModels/SettingsViewModel.GroupNavigation.cs"] = 2,
+        // Batch 34 moved the interaction section's persisted writes into
+        // InteractionSettingsCoordinator, but the three App.Current accesses
+        // stay in the shell facade on purpose: the resize-overlay sync, the
+        // show-desktop layer refresh and the context-menu prewarm (pinned by
+        // ShellContextMenuCompatibilityContractTests) are host-side linkages
+        // that run after the coordinator's write, not settings writes.
+        ["src/DeskBox/ViewModels/SettingsViewModel.PreferenceCallbacks.cs"] = 3,
+        ["src/DeskBox/ViewModels/SettingsViewModel.PreferenceCommands.cs"] = 3,
+        ["src/DeskBox/ViewModels/SettingsViewModel.QuickCaptureDiagnostics.cs"] = 2,
+        ["src/DeskBox/ViewModels/SettingsViewModel.RuntimeDiagnostics.cs"] = 2,
+        ["src/DeskBox/Services/DesktopDoubleClickActivationService.cs"] = 2,
+        ["src/DeskBox/Services/FileMetaService.cs"] = 1,
+        ["src/DeskBox/Services/GlobalHotkeyService.cs"] = 2,
+        ["src/DeskBox/Services/QuickCaptureClipboardService.cs"] = 3,
+        ["src/DeskBox/Services/PerformanceLogger.cs"] = 1,
+        ["src/DeskBox/Services/Localized.cs"] = 1,
+        ["src/DeskBox/Services/ResizeGuideOverlayService.cs"] = 4,
+        ["src/DeskBox/Services/ThemeService.cs"] = 3,
+        ["src/DeskBox/Services/StoreAppUpdateService.cs"] = 1,
+        ["src/DeskBox/Services/SearchHotkeyService.cs"] = 3,
+        ["src/DeskBox/Services/WeatherService.cs"] = 1,
+        ["src/DeskBox/Services/JumpListService.cs"] = 1,
+        ["src/DeskBox/Services/WidgetChromeMenuBuilder.cs"] = 1,
+        ["src/DeskBox/Services/WidgetSettingsMenuHelper.cs"] = 2,
+        // UiDispatch migration: the settings-changed marshal now routes
+        // through DeskBox.Platform.UiDispatch (count 14 → 13).
+        // Z-order self-heal (289/447/468): the desktop-pinned bedding
+        // watchdog timer creation (13 → 14); enqueues use UiDispatch.
+        // Shutdown self-redispatch fix (#530/#532): four marshals moved
+        // onto UiDispatch.RunOrDefer (14 → 10).
+        ["src/DeskBox/Services/WidgetManager.ZOrder.cs"] = 10,
+        ["src/DeskBox/Services/WidgetManager.Surfaces.cs"] = 1,
+        ["src/DeskBox/Services/WidgetManager.Storage.cs"] = 1,
+        // UiDispatch migration: the enable-state marshal and the feature
+        // widget marshal helper moved onto UiDispatch (12 → 10 in the main
+        // file; FeatureWidgets dropped to zero). Shutdown self-redispatch
+        // fix (#530/#532): four more marshals moved onto RunOrDefer (10 → 6;
+        // CapsuleArrangement dropped to zero).
+        ["src/DeskBox/Services/WidgetManager.cs"] = 6,
+        ["src/DeskBox/Services/WidgetLayerService.cs"] = 8,
+    };
+
+    [Fact]
+    public void LegacyBusinessGlobalAccess_DoesNotGrow()
+    {
+        Regex access = new(@"\bApp\.(?:Current|UiDispatcherQueue)\b|\bIServiceProvider\b");
+        var offenders = ProductionSource()
+            .Where(item => (item.Path.StartsWith("src/DeskBox/Services/", StringComparison.Ordinal) ||
+                            item.Path.StartsWith("src/DeskBox/ViewModels/", StringComparison.Ordinal) ||
+                            item.Path.StartsWith("src/DeskBox/Models/", StringComparison.Ordinal)) &&
+                !item.Path.Contains(".Aot", StringComparison.Ordinal) &&
+                !Path.GetFileName(item.Path).StartsWith("Aot", StringComparison.Ordinal))
+            .Select(item => (item.Path, Count: access.Matches(item.Source).Count))
+            .Where(item => item.Count > 0)
+            .ToArray();
+        AssertViolationManifest(offenders, BusinessGlobalAccessExpectedViolations,
+            "Inject new business dependencies; existing global-access exceptions may only shrink:");
+    }
+
+    [Fact]
+    public void UiAccessGuards_NeverRedispatchThroughTheRawDispatcher()
+    {
+        // A raw App.UiDispatcherQueue re-dispatch behind a UiDispatch access
+        // gate re-queues itself forever on the UI thread once the gate and the
+        // raw queue disagree; the shutdown spin of #530/#532 was this shape.
+        Regex guardedRawRedispatch = new(
+            @"if \(!(?:HasUiThreadAccess\(\)|(?:DeskBox\.Platform\.)?UiDispatch\.HasAccess)\)\s*\{[^{}]*\bApp\.UiDispatcherQueue\b");
+        string[] offenders = ProductionSource()
+            .Where(item => guardedRawRedispatch.IsMatch(item.Source))
+            .Select(item => item.Path)
+            .ToArray();
+
+        Assert.True(offenders.Length == 0,
+            "Route access-gated re-dispatch through UiDispatch.RunOrDefer/RunAsync:\n" +
+            string.Join('\n', offenders));
+    }
+
+    [Fact]
+    public void FeatureBusinessCode_DoesNotResolveGlobalApplicationServices()
+    {
+        // Inspect compiled references so aliases, fully qualified names and
+        // generated async state machines cannot bypass a source-text check.
+        Type[] types = typeof(DeskBox.App).Assembly.GetTypes()
+            .Where(type => type.Namespace?.StartsWith("DeskBox.Features.", StringComparison.Ordinal) == true ||
+                type.FullName?.StartsWith("DeskBox.Services.TodoSettingsCoordinator", StringComparison.Ordinal) == true ||
+                type.FullName?.StartsWith("DeskBox.Services.SearchSettingsCoordinator", StringComparison.Ordinal) == true ||
+                type.FullName?.StartsWith("DeskBox.Services.BackupSettingsCoordinator", StringComparison.Ordinal) == true ||
+                type.FullName?.StartsWith("DeskBox.Services.BackupRestoreActions", StringComparison.Ordinal) == true ||
+                type.FullName?.StartsWith("DeskBox.Services.QuickCaptureSettingsCoordinator", StringComparison.Ordinal) == true ||
+                type.FullName?.StartsWith("DeskBox.Services.BackupBackend", StringComparison.Ordinal) == true ||
+                type.FullName?.StartsWith("DeskBox.Services.ShutdownSequence", StringComparison.Ordinal) == true ||
+                type.FullName?.StartsWith("DeskBox.Views.SettingsSections.SearchSettingsSection", StringComparison.Ordinal) == true)
+            .ToArray();
+        Assert.NotEmpty(types);
+        var violations = new List<string>();
+        foreach (Type type in types)
+        {
+            bool isSearchView = type.FullName?.StartsWith("DeskBox.Views.SettingsSections.SearchSettingsSection", StringComparison.Ordinal) == true;
+            foreach (Type reference in ReferencedTypes(type).SelectMany(ExpandType).Distinct())
+            {
+                string name = reference.FullName ?? string.Empty;
+                bool globalServiceAccess = name is "DeskBox.App" or "System.IServiceProvider" or
+                    "CommunityToolkit.Mvvm.DependencyInjection.Ioc" ||
+                    (name == "Microsoft.UI.Xaml.Application" && !isSearchView) ||
+                    name.StartsWith("Microsoft.Extensions.DependencyInjection.", StringComparison.Ordinal);
+                bool featureUsesAdapter = type.Namespace?.StartsWith("DeskBox.Features.", StringComparison.Ordinal) == true &&
+                    (name.StartsWith("DeskBox.Services.", StringComparison.Ordinal) ||
+                     name.StartsWith("DeskBox.Platform.", StringComparison.Ordinal) || name == "DeskBox.Models.AppSettings");
+                bool searchViewUsesRuntime = isSearchView &&
+                    name is "DeskBox.Services.SettingsService" or "DeskBox.Services.SearchHotkeyService" or "DeskBox.Services.EverythingSearchService";
+                if (globalServiceAccess || featureUsesAdapter || searchViewUsesRuntime)
+                    violations.Add($"{type.FullName} -> {name}");
+            }
+        }
+        Assert.True(violations.Count == 0,
+            "Inject feature contracts instead of application/container/adapter dependencies:\n" + string.Join('\n', violations));
+    }
+
+    [Fact]
+    public void BackupSettingsPages_DoNotResolveTheGlobalApp()
+    {
+        string[] paths =
+        [
+            // Batch 49 deleted the shell backup option partials (the
+            // binding surface lives on the backup editor now).
+            "src/DeskBox/Views/SettingsWindow.CloudBackup.cs",
+            "src/DeskBox/Features/Backup/BackupSettingsViewModel.cs",
+            "src/DeskBox/Features/Backup/BackupSettingsViewModel.SettingsSurface.cs",
+            "src/DeskBox/Features/Backup/CloudBackupRemoteSnapshotItem.cs",
+            "src/DeskBox/Services/BackupSettingsCoordinator.cs",
+            "src/DeskBox/Services/BackupRestoreActions.cs"
+        ];
+        foreach (string path in paths)
+        {
+            string source = ProductionSource().Single(item => item.Path == path).Source;
+            Assert.DoesNotContain("App.Current", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IServiceProvider", source, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void QuickCaptureEnablement_DoesNotResolveTheGlobalApp()
+    {
+        foreach (string path in new[]
+        {
+            "src/DeskBox/Features/QuickCapture/QuickCaptureClipboardRuntime.cs",
+            "src/DeskBox/Services/QuickCaptureSettingsCoordinator.cs",
+            "src/DeskBox/ViewModels/SettingsViewModel.QuickCaptureSettings.cs",
+            // Batch 46: the enablement/recording switch chain (the old
+            // OnQuickCapture*Changed partials) lives on the section editor.
+            "src/DeskBox/Features/QuickCapture/QuickCaptureSettingsViewModel.cs",
+            // Batch 47: the Todo switch chain (the old OnTodo*Changed
+            // partials) lives on the Todo section editor as well.
+            "src/DeskBox/Services/TodoSettingsCoordinator.cs",
+            "src/DeskBox/Features/Todo/TodoSettingsViewModel.cs",
+            // Batch 48: the Weather section's binding surface (incl. the
+            // pushed city-search projection) lives on the section editor.
+            "src/DeskBox/Features/Weather/WeatherSettingsViewModel.cs",
+            // Batch 50: the performance section's binding surface (incl. the
+            // three working-set trim switches whose change handlers replaced
+            // the old On*Changed partials) lives on the section editor.
+            "src/DeskBox/Features/Performance/PerformanceSettingsViewModel.cs",
+            "src/DeskBox/Services/PerformanceSettingsCoordinator.cs"
+        })
+        {
+            string source = ProductionSource().Single(item => item.Path == path).Source;
+            Assert.DoesNotContain("App.Current", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IServiceProvider", source, StringComparison.Ordinal);
+        }
+
+        // Batch 47 deleted the shell callback partials entirely (both the
+        // Quick Capture and the Todo chains now live on their editors).
+        Assert.DoesNotContain(
+            "src/DeskBox/ViewModels/SettingsViewModel.FeatureCallbacks.cs",
+            ProductionSource().Select(item => item.Path),
+            StringComparer.Ordinal);
+        Assert.DoesNotContain("partial void OnTodo",
+            ProductionSource().Single(item =>
+                item.Path == "src/DeskBox/ViewModels/SettingsViewModel.FeatureOptions.cs").Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SearchMasterSwitch_UsesTheCoordinatorInsteadOfWidgetManagerGlobalAccess()
+    {
+        string manager = ProductionSource().Single(item =>
+            item.Path == "src/DeskBox/Services/WidgetManager.FeatureWidgets.cs").Source;
+        string settings = ProductionSource().Single(item =>
+            item.Path == "src/DeskBox/ViewModels/SettingsViewModel.FeatureOptions.cs").Source;
+        Assert.DoesNotContain("App.Current.SetSearchFeatureEnabled", manager, StringComparison.Ordinal);
+        Assert.Contains("await _searchFeatureSettings.SetEnabledAsync(enabled, reveal)",
+            manager, StringComparison.Ordinal);
+        Assert.Contains("_searchFeatureSettings.CommitEnabledStateAsync(enabled)",
+            manager, StringComparison.Ordinal);
+        Assert.Contains("TrackSearchFeatureAction(_searchFeatureSettings.SetEnabledAsync(enabled, reveal: enabled))",
+            settings, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WidgetManagerContentRegistrations_HaveOneMutationBoundary()
+    {
+        Regex scatteredMutation = new(
+            @"_contentWidgets\s*(?:\[[^\]]+\]\s*=|\.\s*(?:Remove|Clear)\s*\()|" +
+            @"_widgetWindowHandles\s*\.\s*(?:Add|Remove|Clear)\s*\(");
+        foreach ((string path, string source) in ProductionSource().Where(item =>
+                     item.Path.StartsWith("src/DeskBox/Services/WidgetManager", StringComparison.Ordinal) &&
+                     item.Path.EndsWith(".cs", StringComparison.Ordinal)))
+        {
+            Assert.True(!scatteredMutation.IsMatch(source),
+                $"Content window ID/HWND mutations must use the shared registration boundary: {path}");
+        }
+
+        string creation = ProductionSource().Single(item =>
+            item.Path == "src/DeskBox/Services/WidgetManager.cs").Source;
+        int factory = creation.IndexOf("var window = factory.CreateContentWindow(plan);", StringComparison.Ordinal);
+        int guarded = creation.IndexOf("try", factory + 1, StringComparison.Ordinal);
+        int registered = creation.IndexOf("_contentWindowRegistration.Register(config.Id, window)",
+            factory + 1, StringComparison.Ordinal);
+        Assert.True(factory >= 0 && guarded > factory && registered > guarded,
+            "Window tracking and registration must be inside creation's failure-cleanup scope.");
+        Assert.Contains("if (registeredIds.Count == 0) return;", creation,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WidgetManagerFileSessions_HaveOneMutationBoundary()
+    {
+        Regex scatteredMutation = new(
+            @"_fileWidgets\s*(?:\[[^\]]+\]\s*=|\.\s*(?:Remove|Clear)\s*\()");
+        foreach ((string path, string source) in ProductionSource().Where(item =>
+                     item.Path.StartsWith("src/DeskBox/Services/WidgetManager", StringComparison.Ordinal) &&
+                     item.Path.EndsWith(".cs", StringComparison.Ordinal)))
+        {
+            Assert.True(!scatteredMutation.IsMatch(source),
+                $"Standalone file-session mutations must use the shared identity boundary: {path}");
+        }
+
+        string manager = ProductionSource().Single(item =>
+            item.Path == "src/DeskBox/Services/WidgetManager.cs").Source;
+        Assert.Contains("_fileSessionRegistration.RegisterOrReplace(config.Id, session)",
+            manager, StringComparison.Ordinal);
+        Assert.Contains("_fileSessionRegistration.UnregisterHost(host)",
+            manager, StringComparison.Ordinal);
+    }
+
+    private static IEnumerable<Type> ExpandType(Type type)
+    {
+        yield return type;
+        if (type.HasElementType)
+            foreach (Type element in ExpandType(type.GetElementType()!)) yield return element;
+        if (type.IsGenericType)
+            foreach (Type argument in type.GetGenericArguments().SelectMany(ExpandType)) yield return argument;
+    }
+
+    private static IEnumerable<Type> ReferencedTypes(Type type)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic |
+            BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        if (type.BaseType is { } parent) yield return parent;
+        foreach (Type contract in type.GetInterfaces()) yield return contract;
+        foreach (FieldInfo field in type.GetFields(flags)) yield return field.FieldType;
+        IEnumerable<MethodBase> methods = type.GetMethods(flags).Cast<MethodBase>().Concat(type.GetConstructors(flags));
+        foreach (MethodBase method in methods)
+        {
+            if (method is MethodInfo methodInfo) yield return methodInfo.ReturnType;
+            foreach (ParameterInfo parameter in method.GetParameters()) yield return parameter.ParameterType;
+            MethodBody? body = method.GetMethodBody();
+            if (body is null) continue;
+            foreach (LocalVariableInfo local in body.LocalVariables) yield return local.LocalType;
+            byte[] il = body.GetILAsByteArray()!;
+            for (int offset = 0; offset < il.Length;)
+            {
+                short code = il[offset++];
+                if (code == 0xfe) code = unchecked((short)(0xfe00 | il[offset++]));
+                OpCode op = IlOpCodes[code];
+                if (op.OperandType is OperandType.InlineMethod or OperandType.InlineField or OperandType.InlineType or OperandType.InlineTok)
+                {
+                    MemberInfo? member = method.Module.ResolveMember(BitConverter.ToInt32(il, offset),
+                        type.IsGenericType ? type.GetGenericArguments() : null,
+                        method.IsGenericMethod ? method.GetGenericArguments() : null);
+                    if (member is Type target) yield return target;
+                    else if (member?.DeclaringType is { } declaring) yield return declaring;
+                    if (member is MethodInfo called && called.IsGenericMethod)
+                        foreach (Type argument in called.GetGenericArguments()) yield return argument;
+                }
+                offset += op.OperandType switch
+                {
+                    OperandType.InlineNone => 0,
+                    OperandType.ShortInlineBrTarget or OperandType.ShortInlineI or OperandType.ShortInlineVar => 1,
+                    OperandType.InlineVar => 2,
+                    OperandType.InlineI8 or OperandType.InlineR => 8,
+                    OperandType.InlineSwitch => 4 + 4 * BitConverter.ToInt32(il, offset),
+                    _ => 4
+                };
+            }
+        }
+    }
+
+    private static readonly IReadOnlyDictionary<short, OpCode> IlOpCodes = typeof(OpCodes)
+        .GetFields(BindingFlags.Public | BindingFlags.Static)
+        .Where(field => field.FieldType == typeof(OpCode))
+        .Select(field => (OpCode)field.GetValue(null)!)
+        .ToDictionary(code => code.Value);
+
     // Exact violation manifests measured on 2026-09-18: file → call-site count.
     // Entries may only shrink or disappear — a file that has to grow, or a new
     // file that has to appear, means new boundary violations were added, which
@@ -20,23 +445,14 @@ public sealed class ModuleBoundaryContractTests
     // let one file's cleanup pay for another file's regression; the manifest
     // closes that substitution gap. Tighten an entry in the same commit that
     // removes its violations — the manifest is the ratchet's memory.
+    //
+    // Batch 31 (2026-09-26) completed the proactive Platform P/Invoke
+    // migration: every DllImport/LibraryImport outside DeskBox.Platform was
+    // moved or extracted, so this manifest is now empty and the test below is
+    // a hard-zero law — new P/Invoke must land in Platform from today.
     private static readonly IReadOnlyDictionary<string, int> PlatformInteropExpectedViolations =
         new Dictionary<string, int>(StringComparer.Ordinal)
     {
-        ["src/DeskBox/App.xaml.cs"] = 10,
-        ["src/DeskBox/Controls/NativeShellFileDragProvider.cs"] = 4,
-        ["src/DeskBox/Helpers/ElevatedFileLauncher.cs"] = 7,
-        ["src/DeskBox/Helpers/NativeDropDescriptionWriter.cs"] = 7,
-        ["src/DeskBox/Helpers/NativeDropTarget.cs"] = 12,
-        ["src/DeskBox/Helpers/ShellClipboardHelper.cs"] = 12,
-        ["src/DeskBox/Helpers/ShellDataObjectBuilder.cs"] = 5,
-        ["src/DeskBox/Services/DesktopBlankHitTest.cs"] = 6,
-        ["src/DeskBox/Services/DragDropPermissionService.cs"] = 13,
-        ["src/DeskBox/Services/FileService.ShellTransfer.cs"] = 5,
-        ["src/DeskBox/Services/FileService.cs"] = 6,
-        ["src/DeskBox/Services/JumpListService.cs"] = 4,
-        ["src/DeskBox/Services/QuickLookPreviewService.cs"] = 4,
-        ["src/DeskBox/Views/ContentWidgetWindow.AotNativeDropSmoke.cs"] = 4,
     };
 
     private static readonly IReadOnlyDictionary<string, int> DestructiveFileOpExpectedViolations =
@@ -48,7 +464,9 @@ public sealed class ModuleBoundaryContractTests
         ["src/DeskBox/App.AotMusicVolumeMutationSmoke.cs"] = 3,
         ["src/DeskBox/App.AotMusicVolumeReadSmoke.cs"] = 2,
         ["src/DeskBox/App.AotMusicVolumeSessionMutationSmoke.cs"] = 3,
-        ["src/DeskBox/App.AotNativeDropSmoke.cs"] = 4,
+        // +1: the 5B-4C1C2A managed-card probe deletes the destination file
+        // it just created inside the owned native-drop fixture widget root.
+        ["src/DeskBox/App.AotNativeDropSmoke.cs"] = 5,
         ["src/DeskBox/App.AotQuickAccessMutationSmoke.cs"] = 2,
         ["src/DeskBox/App.AotShellMoveSmoke.cs"] = 2,
         ["src/DeskBox/App.AotShellSmoke.cs"] = 2,
@@ -60,7 +478,9 @@ public sealed class ModuleBoundaryContractTests
         ["src/DeskBox/App.xaml.cs"] = 3,
         ["src/DeskBox/Helpers/NativeDropTarget.cs"] = 5,
         ["src/DeskBox/Services/AotShellMoveFixture.cs"] = 1,
-        ["src/DeskBox/Services/AppUpdateService.cs"] = 5,
+        // +1: retiring a downloaded installer reclaims its version-scoped
+        // directory under the updates root (TryDeleteRetiredInstallerDirectory).
+        ["src/DeskBox/Services/AppUpdateService.cs"] = 6,
         ["src/DeskBox/Services/AttachmentStorageService.cs"] = 1,
         // Cloud backup orchestrator cleans up its own %TEMP% upload staging
         // directory — it never touches the data root (that stays inside
@@ -77,7 +497,10 @@ public sealed class ModuleBoundaryContractTests
         ["src/DeskBox/Services/DesktopOrganizationRecoveryStore.cs"] = 2,
         ["src/DeskBox/Services/DesktopOrganizationTransaction.cs"] = 1,
         ["src/DeskBox/Services/DirectStartupTaskBackend.cs"] = 2,
-        ["src/DeskBox/Services/FeedbackService.cs"] = 1,
+        // 2 = the anonymous client-id persist plus the #449 success-only
+        // cooldown persist; both are app-state tmp+move atomic writes, not
+        // user-file mutations.
+        ["src/DeskBox/Services/FeedbackService.cs"] = 2,
         ["src/DeskBox/Services/FileService.CaseOnlyRename.cs"] = 2,
         ["src/DeskBox/Services/FileService.TransferProgress.cs"] = 4,
         ["src/DeskBox/Services/FileService.cs"] = 9,
@@ -99,8 +522,21 @@ public sealed class ModuleBoundaryContractTests
         // folder after moving its contents back to the desktop (#112
         // migration rollback work in progress).
         ["src/DeskBox/Services/WidgetManager.Storage.cs"] = 5,
+        // 6: the title-icon asset store manages its own app-data surface
+        // only (data/widget-assets): stale-replace delete, icon delete,
+        // widget-asset directory cleanup, the recent-emoji tmp+move atomic
+        // write, and the copy's tmp+move atomic replace plus its temp
+        // cleanup — the copy can no longer truncate the live file under a
+        // concurrent backup snapshot or streamed decode. No user-file
+        // mutation.
+        ["src/DeskBox/Services/WidgetTitleIconAssetStore.cs"] = 6,
         ["src/DeskBox/ViewModels/TodoWidgetViewModel.DetailAndAttachments.cs"] = 1,
-        ["src/DeskBox/Views/ContentWidgetWindow.NativeDragDrop.cs"] = 1,
+        // 2026-10-14: the VirtualDrops temp-root delete moved verbatim from
+        // ContentWidgetWindow.NativeDragDrop.cs (entry removed) into the
+        // shared materialization worker so refusal branches can clean up too.
+        // Relocation, not a new violation — total unchanged, whitelist guard
+        // included in the moved code.
+        ["src/DeskBox/Helpers/NativeDropMaterializationWorker.cs"] = 1,
         ["src/DeskBox/Views/SearchPopupWindow.xaml.cs"] = 2,
         ["src/DeskBox/Views/SettingsWindow.Feedback.cs"] = 1,
     };
@@ -108,6 +544,12 @@ public sealed class ModuleBoundaryContractTests
     private static readonly string[] LegacyModelsUiExpectedFiles =
     {
         "src/DeskBox/Models/GlanceWidgetData.cs",
+        // Batch 44 moved the settings-section projection records (widget
+        // groups and capsule overrides) from the settings-shell partials
+        // into Models so the WinUI-free editors can expose them as pushed
+        // binding surfaces; they keep the WinRT bindable attribute.
+        "src/DeskBox/Models/CapsuleOverrideSettingsItem.cs",
+        "src/DeskBox/Models/WidgetGroupSettingsItems.cs",
         "src/DeskBox/Models/SearchModels.cs",
         "src/DeskBox/Models/SettingsOption.cs",
         "src/DeskBox/Models/WeatherData.cs",

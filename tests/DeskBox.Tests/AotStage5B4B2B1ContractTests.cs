@@ -1,4 +1,4 @@
-namespace DeskBox.Tests;
+﻿namespace DeskBox.Tests;
 
 public sealed class AotStage5B4B2B1ContractTests
 {
@@ -30,8 +30,6 @@ public sealed class AotStage5B4B2B1ContractTests
             "src/DeskBox/ViewModels/QuickCaptureWidgetViewModel.cs");
         string itemSync = ReadRepositoryFile(
             "src/DeskBox/ViewModels/QuickCaptureWidgetViewModel.ItemSync.cs");
-        string window = ReadRepositoryFile(
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.xaml");
         string surface = ReadRepositoryFile(
             "src/DeskBox/Controls/WidgetContents/QuickCaptureSurfaceContent.xaml");
 
@@ -60,7 +58,7 @@ public sealed class AotStage5B4B2B1ContractTests
             itemSync,
             StringComparison.Ordinal);
 
-        foreach (string xaml in new[] { window, surface })
+        foreach (string xaml in new[] { surface })
         {
             Assert.Contains(
                 "ItemsSource=\"{Binding VisibleItemsSource}\"",
@@ -132,7 +130,7 @@ public sealed class AotStage5B4B2B1ContractTests
 
         Assert.Contains("aot-5b4b2b1-quick-capture", manager, StringComparison.Ordinal);
         Assert.Contains("_contentWidgets.TryGetValue", manager, StringComparison.Ordinal);
-        Assert.Contains("window.CurrentContent is QuickCaptureSurfaceContent", manager, StringComparison.Ordinal);
+        Assert.Contains("window.CurrentContent is QuickCaptureWidgetContentAdapter adapter", manager, StringComparison.Ordinal);
         Assert.Contains("WindowHandle", manager, StringComparison.Ordinal);
         Assert.Contains("WindowContentRoot?.XamlRoot", manager, StringComparison.Ordinal);
         Assert.Contains("Visible", manager, StringComparison.Ordinal);
@@ -249,9 +247,9 @@ public sealed class AotStage5B4B2B1ContractTests
         string baseline = ReadRepositoryFile(
             "tests/DeskBox.Tests/JsonSerializationBaselineContractTests.cs");
 
-        Assert.Contains("Assert.Equal(35, actual.Count);", baseline, StringComparison.Ordinal);
-        Assert.Contains("Assert.Equal(83, actual.Values.Sum());", baseline, StringComparison.Ordinal);
-        Assert.Contains("Assert.Equal(32, actualContextOwners.Length);", baseline, StringComparison.Ordinal);
+        Assert.Contains("Assert.Equal(41, actual.Count);", baseline, StringComparison.Ordinal);
+        Assert.Contains("Assert.Equal(96, actual.Values.Sum());", baseline, StringComparison.Ordinal);
+        Assert.Contains("Assert.Equal(37, actualContextOwners.Length);", baseline, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -283,7 +281,7 @@ public sealed class AotStage5B4B2B1ContractTests
         Assert.Contains("stage5B4B2B1ForbiddenScopePatterns", audit, StringComparison.Ordinal);
         Assert.Contains("stage5B4B2B1JsonSerializeCallCount", audit, StringComparison.Ordinal);
         Assert.Contains("stage5B4B2B1SourceWarningMessages", audit, StringComparison.Ordinal);
-        Assert.Contains("stage5B4B2B1ExpectedWmc1510Count = 866", audit, StringComparison.Ordinal);
+        Assert.Contains("stage5B4B2B1ExpectedWmc1510Count = 790", audit, StringComparison.Ordinal);
     }
 
     private static int CountOccurrences(string value, string token)

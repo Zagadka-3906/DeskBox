@@ -4,7 +4,8 @@ namespace DeskBox.Services;
 
 /// <summary>
 /// Central DI registration for all core DeskBox services.
-/// All services use Singleton lifetime (desktop app = single process).
+/// These registrations have application lifetime. Feature/window factories
+/// own shorter-lived instances; App disposes this container after its consumers.
 /// </summary>
 public static class ServiceRegistry
 {
@@ -15,7 +16,6 @@ public static class ServiceRegistry
     {
         // ── Core infrastructure ──────────────────────────────────────────
         services.AddSingleton<SettingsService>();
-        services.AddSingleton<SettingsMigrationPipeline>();
         services.AddSingleton<DeskBoxDataBackupService>();
         services.AddSingleton<ICredentialStore>(_ => new PasswordVaultCredentialStore());
         services.AddSingleton<CloudBackupService>(sp =>
@@ -34,13 +34,11 @@ public static class ServiceRegistry
             new OrganizerService(
                 sp.GetRequiredService<SettingsService>(),
                 sp.GetRequiredService<FileService>()));
-        services.AddSingleton<QuickCaptureService>(_ => new QuickCaptureService());
+        services.AddSingleton<QuickCaptureService>(sp => new QuickCaptureService(
+            recycleAttachmentFileAsync: path =>
+                sp.GetRequiredService<FileService>().DeleteEntryAsync(path, recycle: true)));
         services.AddSingleton<LocalizationService>();
         services.AddSingleton<ThemeService>();
-
-        // ── Weather ──────────────────────────────────────────────────────
-        services.AddSingleton<WeatherService>();
-        services.AddSingleton<CitySearchService>();
 
         // ── Update (factory-based) ───────────────────────────────────────
         services.AddSingleton<IAppUpdateService>(_ =>

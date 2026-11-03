@@ -31,6 +31,8 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
     private WidgetGroupPresentation? _presentation;
     private IdentitySnapshot? _displayedIdentity;
     private MenuFlyout? _openFlyout;
+    private FrameworkElement? _lastPickerAnchor;
+    private bool dissolvePendingWhenClosed;
     private long _tabHoverSwitchGeneration;
     private string? _hoveredTabMemberId;
     private CancellationTokenSource? _tabHoverSwitchCancellation;
@@ -136,6 +138,7 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
             CancelTabInteraction();
             CancelAllHoverSwitches();
             CancelDragHoverSwitch();
+            ExitFileDragStripFreeze();
         };
         Visibility = Visibility.Collapsed;
     }
@@ -352,7 +355,10 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
 
         MenuFlyout flyout = CreateMembersFlyout();
         _openFlyout = flyout;
-        flyout.ShowAt(anchor ?? (UsesTabs ? TabsView : SelectorButton));
+        FrameworkElement pickerAnchor = anchor ??
+            (UsesTabs ? TabsView : (FrameworkElement)SelectorButton);
+        _lastPickerAnchor = pickerAnchor;
+        flyout.ShowAt(pickerAnchor);
     }
 
     public void SetMemberLoading(string? widgetId, bool isLoading)
@@ -601,6 +607,14 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
             return;
         }
 
+        // PointerEntered can leak through on some machines while an OLE file
+        // drag is running; during a file drag the dwell switch owns member
+        // switching, so the 80ms hover path must stay out of its way.
+        if (_isFileDragStripFreeze)
+        {
+            return;
+        }
+
         _hoveredTabMemberId = memberId;
         _tabHoverSwitchCancellation?.Cancel();
         var cancellation = new CancellationTokenSource();
@@ -702,16 +716,6 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
         Root.Opacity = 0.72;
         DetachScaleTransform.ScaleX = 0.985;
         DetachScaleTransform.ScaleY = 0.985;
-    }
-
-    private void GroupTitle_PointerPressed(
-        object sender,
-        PointerRoutedEventArgs e)
-    {
-        if (sender is UIElement source)
-        {
-            BeginDetachLongPress(source, e);
-        }
     }
 
     private void GroupTitle_PointerMoved(
@@ -1050,14 +1054,16 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
                 member.WidgetId,
                 _displayedIdentity?.WidgetId,
                 StringComparison.Ordinal);
+            // An emoji override renders as a colored text prefix: FontIcon
+            // cannot be trusted to rasterize color emoji on every surface.
+            string memberEmoji = member.CustomTitleIconEmoji;
             var item = new MenuFlyoutItem
             {
-                Text = member.Name,
+                Text = memberEmoji.Length > 0
+                    ? $"{memberEmoji} {member.Name}"
+                    : member.Name,
                 FontWeight = Microsoft.UI.Text.FontWeights.Normal,
-                Icon = new FontIcon
-                {
-                    Glyph = isCurrent ? "\uE73E" : member.Glyph
-                }
+                Icon = CreateMemberMenuIcon(member, isCurrent, memberEmoji.Length > 0)
             };
             int index = FindMemberIndex(
                 _presentation.Members,
@@ -1077,6 +1083,37 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
 
         AddGroupCommands(flyout);
         return flyout;
+    }
+
+    /// <summary>
+    /// The members menu keeps the check glyph for the current member; a
+    /// member with a custom image icon shows that instead of its default
+    /// kind glyph. Emoji overrides skip the icon slot entirely — they ride
+    /// the item text as a colored prefix (FontIcon color-font support is
+    /// unreliable).
+    /// </summary>
+    private static IconElement? CreateMemberMenuIcon(
+        WidgetGroupMemberPresentation member,
+        bool isCurrent,
+        bool hasEmojiPrefix)
+    {
+        if (isCurrent)
+        {
+            return new FontIcon { Glyph = "\uE73E" };
+        }
+
+        if (hasEmojiPrefix)
+        {
+            return null;
+        }
+
+        if (WidgetTitleIconImageSourceFactory.TryCreate(
+                member.CustomTitleIconImagePath) is { } imageSource)
+        {
+            return new ImageIcon { Source = imageSource };
+        }
+
+        return new FontIcon { Glyph = member.Glyph };
     }
 
     private void AddGroupCommands(MenuFlyout flyout)
@@ -1149,6 +1186,7 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
             Text = T("Widget.Group.RemoveCurrent"),
             Icon = new FontIcon { Glyph = "\uE7E8" }
         };
+        WidgetDangerActionStyle.Apply(remove);
         remove.Click += (_, _) =>
             RemoveMemberRequested?.Invoke(
                 this,
@@ -1160,8 +1198,11 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
             Text = T("Widget.Group.Dissolve"),
             Icon = new FontIcon { Glyph = "\uE711" }
         };
-        dissolve.Click += (_, _) =>
-            DissolveRequested?.Invoke(this, EventArgs.Empty);
+        WidgetDangerActionStyle.Apply(dissolve);
+        // Dissolving is not reversible; the click only arms the pending flag
+        // and MembersFlyout_Closed routes through the compact confirmation
+        // before the event leaves this control.
+        dissolve.Click += (_, _) => dissolvePendingWhenClosed = true;
         flyout.Items.Add(dissolve);
     }
 
@@ -1185,8 +1226,66 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
             flyout.Closed -= MembersFlyout_Closed;
         }
 
+        if (dissolvePendingWhenClosed)
+        {
+            // Hold the picker session across the flyout transition: the
+            // confirmation below re-raises PickerClosed when it closes, so
+            // releasing here would drop the interaction layer between the
+            // two flyouts.
+            dissolvePendingWhenClosed = false;
+            if (DispatcherQueue.TryEnqueue(ShowDissolveConfirmation))
+            {
+                return;
+            }
+            // The enqueue failed (e.g. dispatcher shutdown); fall through to
+            // the regular teardown so the session cannot leak.
+        }
+
         _openFlyout = null;
         PickerClosed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ShowDissolveConfirmation()
+    {
+        try
+        {
+            MenuFlyout confirmation =
+                WidgetCompactConfirmationMenuBuilder.CreateDeleteConfirmation(
+                    new WidgetCompactConfirmationOptions(
+                        T("Settings.WidgetGroups.DissolveDialog.Title"),
+                        T("Settings.WidgetGroups.DissolveDialog.Confirm"),
+                        () =>
+                        {
+                            DissolveRequested?.Invoke(this, EventArgs.Empty);
+                            return Task.CompletedTask;
+                        })
+                    {
+                        Message = T("Settings.WidgetGroups.DissolveDialog.Description"),
+                        MessageGlyph = "\uE946",
+                        CancelText = T("Common.Cancel"),
+                        CancelFirst = true
+                    });
+            // Same wiring as the members menu: the picker session stays open
+            // until this confirmation closes.
+            _openFlyout = confirmation;
+            confirmation.Opened += MembersFlyout_Opened;
+            confirmation.Closed += MembersFlyout_Closed;
+            confirmation.ShowAt(_lastPickerAnchor!);
+        }
+        catch (Exception ex)
+        {
+            // ShowAt can throw after the picker session was held across the
+            // flyout transition (e.g. a torn-down XamlRoot during window
+            // closing); a failed show never raises Closed, so the session
+            // must be released here.
+            _openFlyout = null;
+            _pickerOpen = false;
+            _isSelectorPressed = false;
+            _wheelAccumulator = 0;
+            UpdateInteractionChrome();
+            PickerClosed?.Invoke(this, EventArgs.Empty);
+            App.Log($"[WidgetGroup] Dissolve confirmation show failed: {ex}");
+        }
     }
 
     private void ClosePicker()
@@ -1236,7 +1335,9 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
             active.Glyph,
             active.IconKind,
             activeIndex,
-            presentation.Members.Count);
+            presentation.Members.Count,
+            active.CustomTitleIconEmoji,
+            active.CustomTitleIconImagePath);
     }
 
     private static int FindActiveFlagIndex(
@@ -1279,6 +1380,9 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
         icon.Glyph = identity?.Glyph ?? string.Empty;
         icon.IconKind = identity?.IconKind ??
             WidgetTitleIconKindNames.Default;
+        icon.CustomEmoji = identity?.CustomTitleIconEmoji ?? string.Empty;
+        icon.CustomImageSource = WidgetTitleIconImageSourceFactory.TryCreate(
+            identity?.CustomTitleIconImagePath);
         icon.LabelText = identity?.Name ?? string.Empty;
         title.Text = identity?.Name ?? string.Empty;
     }
@@ -1295,5 +1399,7 @@ public sealed partial class WidgetGroupTitleSwitcher : UserControl
         string Glyph,
         string IconKind,
         int Index,
-        int Count);
+        int Count,
+        string CustomTitleIconEmoji = "",
+        string? CustomTitleIconImagePath = null);
 }

@@ -24,15 +24,9 @@ public sealed class ContentDeletionDirectContractTests
     public void QuickCaptureDeletionEntryPoints_DoNotRouteThroughConfirmation()
     {
         string source = ReadRepositoryFiles(
-            "src/DeskBox/Controls/WidgetContents/QuickCaptureSurfaceContent.xaml.cs",
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.Detail.cs",
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.ItemActions.cs",
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.Items.cs",
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.Menus.cs",
-            "src/DeskBox/Views/QuickCaptureWidgetWindow.WindowInteraction.cs");
+            "src/DeskBox/Controls/WidgetContents/QuickCaptureSurfaceContent.xaml.cs");
 
         Assert.Contains("DeleteQuickCaptureItemAsync(", source, StringComparison.Ordinal);
-        Assert.Contains("DeleteItemWithUndoAsync(", source, StringComparison.Ordinal);
         Assert.Contains("DeleteSelectedQuickCaptureItemsAsync(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ConfirmDeleteItemAsync", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ShowQuickCaptureDeleteConfirmFlyout", source, StringComparison.Ordinal);
@@ -47,7 +41,8 @@ public sealed class ContentDeletionDirectContractTests
             "src/DeskBox/Models/AppSettings.cs",
             "src/DeskBox/Services/SettingsService.cs",
             "src/DeskBox/ViewModels/SettingsViewModel.cs",
-            "src/DeskBox/ViewModels/SettingsViewModel.FeatureCallbacks.cs",
+            // Batch 47 moved the Todo switch chain onto the section editor.
+            "src/DeskBox/Features/Todo/TodoSettingsViewModel.cs",
             "src/DeskBox/ViewModels/SettingsViewModel.FeatureOptions.cs",
             "src/DeskBox/ViewModels/SettingsViewModel.SettingsSync.cs",
             "src/DeskBox/ViewModels/TodoWidgetViewModel.cs",

@@ -34,23 +34,29 @@ public sealed partial class ReleaseNotesWindow : Window
     private readonly AppWindow _appWindow;
     private readonly IntPtr _hWnd;
     private readonly Win32Helper.SubclassProc _windowSubclassProc;
-    private AppUpdateManifest _manifest;
+    private readonly Func<CancellationToken, Task<AppUpdateManifest?>>? _manifestLoader;
+    private AppUpdateManifest? _manifest;
     private string _currentVersion;
     private CancellationTokenSource? _loadCts;
+    private CancellationTokenSource? _manifestLoadCts;
     private IntPtr _ownerHwnd;
     private bool _isSubclassInstalled;
     private bool _isClosed;
+    private bool _isRebuildingVersionList;
+    private string _selectedVersion = string.Empty;
 
     public ReleaseNotesWindow(
-        AppUpdateManifest manifest,
+        AppUpdateManifest? manifest,
         string currentVersion,
         ThemeService themeService,
-        LocalizationService localizationService)
+        LocalizationService localizationService,
+        Func<CancellationToken, Task<AppUpdateManifest?>>? manifestLoader = null)
     {
         _manifest = manifest;
         _currentVersion = currentVersion;
         _themeService = themeService;
         _localizationService = localizationService;
+        _manifestLoader = manifestLoader;
         _releaseNotesService = new ReleaseNotesService();
 
         InitializeComponent();
@@ -58,7 +64,7 @@ public sealed partial class ReleaseNotesWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
-        _windowSubclassProc = WindowSubclassProc;
+        _windowSubclassProc = CallbackDepth.WrapSubclassProc(WindowSubclassProc);
         _hWnd = WindowNative.GetWindowHandle(this);
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(_hWnd);
         _appWindow = AppWindow.GetFromWindowId(windowId);
@@ -81,7 +87,15 @@ public sealed partial class ReleaseNotesWindow : Window
         ResizeAndCenter(windowId);
         ApplyTitleBarColors();
         ApplyStaticText();
-        _ = LoadReleaseNotesAsync();
+        RebuildVersionList();
+        if (_manifest is not null)
+        {
+            _ = LoadReleaseNotesAsync();
+        }
+        else
+        {
+            _ = LoadManifestAsync();
+        }
     }
 
     public void UpdateManifest(AppUpdateManifest manifest, string currentVersion)
@@ -94,7 +108,119 @@ public sealed partial class ReleaseNotesWindow : Window
         _manifest = manifest;
         _currentVersion = currentVersion;
         ApplyStaticText();
+        RebuildVersionList();
         _ = LoadReleaseNotesAsync();
+    }
+
+    /// <summary>
+    /// Rebuilds the version navigation rail: the version currently shown
+    /// first, then every published release, then any extra versions with an
+    /// on-disk notes cache, newest first — the published list keeps the rail
+    /// identical across machines, while the cache keeps viewed-but-unlisted
+    /// versions reachable. The rail stays collapsed while only one version
+    /// is reachable so the single-version experience is unchanged.
+    /// </summary>
+    private void RebuildVersionList()
+    {
+        _isRebuildingVersionList = true;
+        try
+        {
+            string target = _manifest is { } manifest && !string.IsNullOrWhiteSpace(manifest.Version)
+                ? manifest.Version
+                : _currentVersion;
+            _selectedVersion = target;
+
+            var versions = new List<string> { target };
+            foreach (string known in Services.ReleaseNotesService.KnownReleaseVersions)
+            {
+                if (!versions.Contains(known, StringComparer.OrdinalIgnoreCase))
+                {
+                    versions.Add(known);
+                }
+            }
+
+            foreach (string cached in _releaseNotesService.GetCachedVersions())
+            {
+                if (!versions.Contains(cached, StringComparer.OrdinalIgnoreCase))
+                {
+                    versions.Add(cached);
+                }
+            }
+
+            versions.Sort((x, y) =>
+            {
+                if (Version.TryParse(x, out Version? xVersion) &&
+                    Version.TryParse(y, out Version? yVersion))
+                {
+                    int result = xVersion.CompareTo(yVersion);
+                    if (result != 0)
+                    {
+                        return -result;
+                    }
+                }
+
+                return -string.CompareOrdinal(x, y);
+            });
+
+            VersionList.Items.Clear();
+            foreach (string version in versions)
+            {
+                VersionList.Items.Add(version);
+            }
+
+            VersionListHost.Visibility = versions.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+            VersionList.SelectedItem = target;
+        }
+        finally
+        {
+            _isRebuildingVersionList = false;
+        }
+    }
+
+    private void VersionList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRebuildingVersionList || _isClosed)
+        {
+            return;
+        }
+
+        if (VersionList.SelectedItem is not string version ||
+            string.Equals(version, _selectedVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _selectedVersion = version;
+        if (_manifest is { } manifest &&
+            string.Equals(manifest.Version, version, StringComparison.OrdinalIgnoreCase))
+        {
+            // Back on the resolved manifest: it carries the locale-aware
+            // inline notes.
+            UpdateManifest(manifest, _currentVersion);
+            return;
+        }
+
+        // Any other version resolves through its GitHub release tag; the
+        // notes loader serves that version's disk cache first, so versions
+        // viewed once stay readable offline.
+        UpdateManifest(
+            Services.AppUpdateService.CreateReleaseNotesOnlyManifest(version),
+            _currentVersion);
+    }
+
+    /// <summary>
+    /// Re-runs the lazy manifest resolution when the window was opened
+    /// without one (notes button is always visible now); a repeated click
+    /// after a failed fetch retries through this entry point.
+    /// </summary>
+    public void RetryManifestLoad()
+    {
+        if (_isClosed || _manifestLoader is null)
+        {
+            return;
+        }
+
+        _ = LoadManifestAsync();
     }
 
     public void ShowWindow(IntPtr ownerHwnd = default)
@@ -121,16 +247,28 @@ public sealed partial class ReleaseNotesWindow : Window
     {
         Title = _localizationService.T("Settings.ReleaseNotes.WindowTitle");
         WindowTitleText.Text = Title;
+        if (_manifest is not { } manifest)
+        {
+            // No manifest yet: keep the header quiet while the lazy fetch
+            // runs; LoadManifestAsync populates it once a manifest lands.
+            HeaderText.Text = string.Empty;
+            MetadataText.Text = string.Empty;
+            OpenOnlineButton.Content = _localizationService.T("Settings.ReleaseNotes.OpenOnline");
+            CloseButton.Content = _localizationService.T("Settings.ReleaseNotes.Close");
+            OpenOnlineButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         HeaderText.Text = _localizationService.Format(
             "Settings.ReleaseNotes.Header",
-            _manifest.Version);
+            manifest.Version);
 
-        string releaseDate = string.IsNullOrWhiteSpace(_manifest.ReleaseDate)
+        string releaseDate = string.IsNullOrWhiteSpace(manifest.ReleaseDate)
             ? _localizationService.T("Settings.ReleaseNotes.UnknownDate")
-            : _manifest.ReleaseDate;
-        string channel = string.IsNullOrWhiteSpace(_manifest.Channel)
+            : manifest.ReleaseDate;
+        string channel = string.IsNullOrWhiteSpace(manifest.Channel)
             ? "stable"
-            : _manifest.Channel;
+            : manifest.Channel;
         MetadataText.Text = _localizationService.Format(
             "Settings.ReleaseNotes.Metadata",
             releaseDate,
@@ -139,14 +277,61 @@ public sealed partial class ReleaseNotesWindow : Window
 
         OpenOnlineButton.Content = _localizationService.T("Settings.ReleaseNotes.OpenOnline");
         CloseButton.Content = _localizationService.T("Settings.ReleaseNotes.Close");
-        OpenOnlineButton.Visibility = AppUpdateManifest.IsSafeReleaseNotesUrl(_manifest.ReleaseNotesUrl)
+        OpenOnlineButton.Visibility = AppUpdateManifest.IsSafeReleaseNotesUrl(manifest.ReleaseNotesUrl)
             ? Visibility.Visible
             : Visibility.Collapsed;
 
     }
 
+    private async Task LoadManifestAsync()
+    {
+        if (_manifestLoader is null)
+        {
+            return;
+        }
+
+        _manifestLoadCts?.Cancel();
+        _manifestLoadCts?.Dispose();
+        _manifestLoadCts = new CancellationTokenSource();
+        CancellationToken cancellationToken = _manifestLoadCts.Token;
+
+        MarkdownHost.Children.Clear();
+        FallbackText.Visibility = Visibility.Visible;
+        FallbackText.Text = _localizationService.T("Settings.ReleaseNotes.Loading");
+
+        AppUpdateManifest? manifest;
+        try
+        {
+            manifest = await _manifestLoader(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            App.LogVerbose($"[ReleaseNotesWindow] Failed to resolve manifest: {ex.Message}");
+            manifest = null;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (manifest is null)
+        {
+            FallbackText.Text = _localizationService.T("Settings.ReleaseNotes.Empty");
+            FallbackText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        UpdateManifest(manifest, _currentVersion);
+    }
+
     private async Task LoadReleaseNotesAsync()
     {
+        if (_manifest is not { } manifest)
+        {
+            return;
+        }
+
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _loadCts = new CancellationTokenSource();
@@ -159,7 +344,7 @@ public sealed partial class ReleaseNotesWindow : Window
         try
         {
             ReleaseNotesLoadResult result = await _releaseNotesService.LoadAsync(
-                _manifest,
+                manifest,
                 cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -327,9 +512,14 @@ public sealed partial class ReleaseNotesWindow : Window
 
     private void OpenOnlineButton_Click(object sender, RoutedEventArgs e)
     {
-        if (AppUpdateManifest.IsSafeReleaseNotesUrl(_manifest.ReleaseNotesUrl))
+        if (_manifest is not { } manifest)
         {
-            Win32Helper.OpenFile(_manifest.ReleaseNotesUrl);
+            return;
+        }
+
+        if (AppUpdateManifest.IsSafeReleaseNotesUrl(manifest.ReleaseNotesUrl))
+        {
+            Win32Helper.OpenFile(manifest.ReleaseNotesUrl);
         }
     }
 
@@ -352,7 +542,7 @@ public sealed partial class ReleaseNotesWindow : Window
         }
 
         ApplyStaticText();
-        _ = LoadReleaseNotesAsync();
+        _ = _manifest is null ? LoadManifestAsync() : LoadReleaseNotesAsync();
     }
 
     private void RootGrid_ActualThemeChanged(FrameworkElement sender, object args)
@@ -360,7 +550,7 @@ public sealed partial class ReleaseNotesWindow : Window
         ApplyTitleBarColors();
         if (MarkdownHost.Children.Count > 0)
         {
-            _ = LoadReleaseNotesAsync();
+            _ = _manifest is null ? LoadManifestAsync() : LoadReleaseNotesAsync();
         }
     }
 
@@ -459,9 +649,13 @@ public sealed partial class ReleaseNotesWindow : Window
         }
 
         _isClosed = true;
+        WindowsCompatibilityService.ReleaseTitleBarExtensions(this, _appWindow);
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _loadCts = null;
+        _manifestLoadCts?.Cancel();
+        _manifestLoadCts?.Dispose();
+        _manifestLoadCts = null;
         _localizationService.LanguageChanged -= OnLanguageChanged;
         RootGrid.ActualThemeChanged -= RootGrid_ActualThemeChanged;
         AppTitleBar.ActualThemeChanged -= AppTitleBar_ActualThemeChanged;

@@ -9,11 +9,15 @@ namespace DeskBox.ViewModels;
     nameof(CaptionTextSize),
     nameof(CompactLayoutVisibility),
     nameof(CurrentDescription),
-    nameof(CurrentEmoji),
     nameof(CurrentEmojiSize),
+    nameof(CurrentIcon),
     nameof(CurrentTemperatureText),
     nameof(DailyForecastItemsSource),
     nameof(DayViewText),
+    nameof(ErrorBody),
+    nameof(ErrorRetryText),
+    nameof(ErrorTitle),
+    nameof(ErrorVisibility),
     nameof(ExpandedHourlyCardHeight),
     nameof(ExpandedHourlyDividerVisibility),
     nameof(ExpandedHourlyPrecipVisibility),
@@ -84,7 +88,7 @@ public sealed partial class WeatherWidgetViewModel
 [WinRT.GeneratedBindableCustomProperty([
     nameof(DayLabel),
     nameof(Description),
-    nameof(Emoji),
+    nameof(Icon),
     nameof(IconGlyph),
     nameof(PrecipitationText),
     nameof(TempBarOffset),
@@ -97,9 +101,9 @@ public sealed partial class WeatherDayViewModel
 }
 
 [WinRT.GeneratedBindableCustomProperty([
-    nameof(Emoji),
     nameof(ForecastHourTextSize),
     nameof(HourLabel),
+    nameof(Icon),
     nameof(IconGlyph),
     nameof(IsCurrentHour),
     nameof(PrecipitationText),

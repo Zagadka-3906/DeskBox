@@ -45,6 +45,9 @@ public sealed partial class WidgetManager
         string source = "raise-from-tray")
     {
         using var perfScope = PerformanceLogger.Measure("WidgetManager.RaiseWidgetsFromTray");
+        // A user reveal ends any open removal grace (spec 5.6): the parked
+        // topology restore applies before the widgets are shown.
+        EndRemovalGraceByUserAction?.Invoke();
         if (WidgetLayerService.UsesDesktopPinnedMode())
         {
             App.LogVerbose("[TrayBatch] Raise redirected to desktop-pinned show");
@@ -73,6 +76,9 @@ public sealed partial class WidgetManager
         _lastTrayLayerToggleUtc = now;
         _lastRaiseOriginatedFromTrayIcon =
             string.Equals(source, "tray-icon", StringComparison.Ordinal);
+        // A tray raise (tray icon, hotkey, desktop double-click, Quick Reveal)
+        // is the first explicit user reveal of a hidden startup session.
+        ClearStartupHiddenSession(source);
         try
         {
             CancelActiveTrayAnimationsAndRestorePositions();
@@ -159,11 +165,33 @@ public sealed partial class WidgetManager
             }
             else
             {
-                QueueTrayRaiseTopMostConfirmation(shownWindows);
+                // The HWND_TOP group lift cannot cross the foreground window
+                // while DeskBox is still a background process; activating the
+                // idle-highest widget first gives the lift a foreground owner
+                // so every raised window lands above the application the user
+                // invoked from (first-raise-after-idle otherwise shows only
+                // the activated widget).
                 ActivateIdleHighestWindow(shownWindows);
+                QueueTrayRaiseTopMostConfirmation(shownWindows);
             }
             SaveBatchVisibilityState();
             await _trayBatchAnimationDriver.WaitForIdleAsync();
+            if (!WidgetLayerService.UsesQuickRevealMode() &&
+                shownWindows.Count > 0)
+            {
+                // The one-shot band recheck must observe the settled band:
+                // queued from the confirm itself, the delayed callback always
+                // landed inside this raise's own toggle window (animations
+                // run 137ms+ against an 80ms delay) and aborted on the
+                // toggling guard — the guard's only effect was blocking the
+                // raise that queued it. After the idle await the toggle
+                // window has closed; a new raise or hide still aborts the
+                // callback through the generation and session guards.
+                QueueTrayRaiseBandRecheck(
+                    shownWindows,
+                    _trayRaiseBatchGeneration);
+            }
+
             App.LogVerbose($"[TrayBatch] Raise completed raised={_widgetsRaisedFromTray} prepared={windowsToRaise.Count} shown={shownWindows.Count} animated={windowsToAnimate.Count}");
             return _widgetsRaisedFromTray;
         }
@@ -293,7 +321,8 @@ public sealed partial class WidgetManager
                     options.DurationMs,
                     _settingsService.Settings.WidgetAnimationEasingIntensity,
                     isShowing: true,
-                    startDelayFrames: 1);
+                    startDelayFrames: 1,
+                    staggerIntervalMs: GetTrayStaggerIntervalMs(windows));
                 _ = RestoreInteractionBackdropsWhenIdleAsync(windows);
         }
         catch (Exception ex)
@@ -359,13 +388,29 @@ public sealed partial class WidgetManager
                     options.DurationMs,
                     _settingsService.Settings.WidgetAnimationEasingIntensity,
                     isShowing: false,
-                    startDelayFrames: 0);
+                    startDelayFrames: 0,
+                    staggerIntervalMs: GetTrayStaggerIntervalMs(windows));
                 _ = RestoreInteractionBackdropsWhenIdleAsync(windows);
         }
         catch (Exception ex)
         {
             App.Log($"[TrayBatch] Error during batch animation: {ex}");
         }
+    }
+
+    /// <summary>
+    /// Per-window stagger delay for batch animations. Zero keeps the default
+    /// lockstep; when enabled the interval shrinks as the group grows so the
+    /// whole batch stays within roughly one extra quarter-second.
+    /// </summary>
+    private int GetTrayStaggerIntervalMs(IReadOnlyList<IDesktopWidgetWindow> windows)
+    {
+        if (!_settingsService.Settings.WidgetAnimationStaggerEnabled || windows.Count < 2)
+        {
+            return 0;
+        }
+
+        return Math.Clamp(240 / (windows.Count - 1), 8, 48);
     }
 
     /// <summary>
@@ -416,27 +461,8 @@ public sealed partial class WidgetManager
             return;
         }
 
-        string effect = options.Effect;
-        string direction = effect switch
-        {
-            SettingsService.WidgetAnimationEffectSlideLeft or
-            SettingsService.WidgetAnimationEffectSlideLeftFade =>
-                SettingsService.WidgetAnimationSlideDirectionLeft,
-            SettingsService.WidgetAnimationEffectSlideUp or
-            SettingsService.WidgetAnimationEffectSlideUpFade =>
-                SettingsService.WidgetAnimationSlideDirectionUp,
-            SettingsService.WidgetAnimationEffectSlideDown or
-            SettingsService.WidgetAnimationEffectSlideDownFade =>
-                SettingsService.WidgetAnimationSlideDirectionDown,
-            SettingsService.WidgetAnimationEffectSlideRight or
-            SettingsService.WidgetAnimationEffectSlideRightFade =>
-                SettingsService.WidgetAnimationSlideDirectionRight,
-            SettingsService.WidgetAnimationEffectSlideFade or
-            SettingsService.WidgetAnimationEffectScaleSlide =>
-                options.SlideDirection,
-            _ => SettingsService.WidgetAnimationSlideDirectionNone
-        };
-
+        string direction = WidgetAnimationSettings.GetEffectiveSlideDirection(
+            options.Effect, options.SlideDirection);
         if (direction == SettingsService.WidgetAnimationSlideDirectionNone)
         {
             return;
@@ -451,6 +477,7 @@ public sealed partial class WidgetManager
             }
 
             var workArea = GetAnimationWorkArea(groupWindows[0]);
+
             // Use resting bounds: during prepare/play the HWNDs are physically
             // displaced offscreen, which would collapse the group offset to ~0
             // and leave windows parked at their final position when uncloaked.
@@ -459,6 +486,10 @@ public sealed partial class WidgetManager
             double groupRight = groupWindows.Max(window => window.RestingAnimationBounds.Right);
             double groupBottom = groupWindows.Max(window => window.RestingAnimationBounds.Bottom);
 
+            // The group ejects past this monitor's work-area boundary on a
+            // single axis; the other override stays 0. Windows crossing onto
+            // an adjacent display dissolve per-window: each window fades over
+            // its own boundary span inside the tray animation controller.
             double offsetX = 0;
             double offsetY = 0;
             switch (direction)
@@ -475,7 +506,6 @@ public sealed partial class WidgetManager
                     offsetY = workArea.Y + workArea.Height - groupTop + OffscreenAnimationPadding;
                     break;
 
-                case SettingsService.WidgetAnimationSlideDirectionRight:
                 default:
                     offsetX = workArea.X + workArea.Width - groupLeft + OffscreenAnimationPadding;
                     break;
@@ -496,11 +526,15 @@ public sealed partial class WidgetManager
 
     private static Windows.Graphics.RectInt32 GetAnimationWorkArea(IDesktopWidgetWindow window)
     {
+        return GetAnimationDisplayArea(window).WorkArea;
+    }
+
+    private static DisplayArea GetAnimationDisplayArea(IDesktopWidgetWindow window)
+    {
         var point = new Windows.Graphics.PointInt32(
             (int)Math.Round(window.RestingAnimationBounds.Left),
             (int)Math.Round(window.RestingAnimationBounds.Top));
-        var displayArea = DisplayArea.GetFromPoint(point, DisplayAreaFallback.Primary);
-        return displayArea.WorkArea;
+        return DisplayArea.GetFromPoint(point, DisplayAreaFallback.Primary);
     }
 
     private static void ActivateIdleHighestWindow(IReadOnlyList<IDesktopWidgetWindow> windows)
@@ -563,6 +597,67 @@ public sealed partial class WidgetManager
             visibleHandles,
             activeHandle);
         WidgetLayerService.ApplyPeerOrderHighestToLowest(visibleHandles);
+    }
+
+    private const int TrayRaiseBandRecheckDelayMs = 80;
+
+    /// <summary>
+    /// One-shot band-integrity recheck after the synchronous raise
+    /// confirmation. While DeskBox is still a background process the group
+    /// lift cannot cross the then-foreground window, so a raise can settle
+    /// into a split band where only the activated widget crossed the line;
+    /// the Activated-driven reassert repairs that only after the user clicks
+    /// a widget, leaving the split visible until then. Unlike the repeated
+    /// v1.0.7 confirmations (removed in v1.2.9 for fighting the user's
+    /// foreground switches) this aborts unless DeskBox still owns the
+    /// foreground, never re-lifts when a foreign window legitimately covers
+    /// the whole band, and skips windows mid title-bar drag.
+    /// </summary>
+    private void QueueTrayRaiseBandRecheck(
+        IReadOnlyList<IDesktopWidgetWindow> windows,
+        long generation)
+    {
+        if (windows.Count == 0)
+        {
+            return;
+        }
+
+        UiDispatch.RunOrDefer(async () =>
+        {
+            await Task.Delay(TrayRaiseBandRecheckDelayMs);
+            if (generation != _trayRaiseBatchGeneration ||
+                !_widgetsRaisedFromTray ||
+                _isTogglingWidgetsDesktopLayer ||
+                IsWidgetInteractionActive ||
+                !IsForegroundDeskBoxWindow())
+            {
+                return;
+            }
+
+            if (windows.Any(window => window.IsTitleBarDragTransitionActive))
+            {
+                return;
+            }
+
+            List<IntPtr> handles = windows
+                .Where(window => window.Visible && Win32Helper.IsWindow(window.WindowHandle))
+                .Select(window => window.WindowHandle)
+                .ToList();
+            if (handles.Count < 2 ||
+                !WidgetLayerService.IsForeignWindowAboveRaisedPeers(
+                    handles,
+                    exemptShellDesktopWindows: true))
+            {
+                return;
+            }
+
+            WidgetLayerService.BringGroupTemporarilyToFront(handles, handles[0]);
+            WidgetLayerService.ApplyPeerOrderHighestToLowest(handles);
+            App.Log(
+                "[ZOrder] Raised band split repaired by delayed recheck " +
+                $"generation={generation} count={handles.Count} " +
+                $"active=0x{handles[0].ToInt64():X}");
+        });
     }
 
     private void SaveBatchVisibilityState()

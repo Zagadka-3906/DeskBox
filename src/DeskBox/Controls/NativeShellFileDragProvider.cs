@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using DeskBox.Helpers;
+using DeskBox.Platform;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace DeskBox.Controls;
@@ -23,42 +24,11 @@ internal static partial class NativeShellFileDragProvider
     private static readonly Guid s_dataObjectProviderInterfaceId =
         new("3D25F6D6-4B2A-433C-9184-7C33AD35D001");
 
-    [LibraryImport(
-        "shell32.dll",
-        EntryPoint = "SHParseDisplayName",
-        StringMarshalling = StringMarshalling.Utf16)]
-    private static partial int SHParseDisplayName(
-        string name,
-        nint bindContext,
-        out nint itemIdList,
-        uint attributesIn,
-        out uint attributesOut);
+    // Native entry points live in DeskBox.Platform.ShellItemDragNativeMethods.
 
-    [LibraryImport("shell32.dll")]
-    private static partial nint ILFindLastID(nint itemIdList);
-
-    [LibraryImport("shell32.dll")]
-    private static unsafe partial int SHCreateDataObject(
-        nint folderItemIdList,
-        uint itemCount,
-        nint* childItemIdLists,
-        nint innerDataObject,
-        Guid* interfaceId,
-        out nint dataObject);
-
-    [LibraryImport("ole32.dll")]
-    private static partial void CoTaskMemFree(nint value);
-
-    /// <param name="hidePreferredDropEffect">
-    /// Hide the CFSTR_PREFERREDDROPEFFECT value WinUI copies from
-    /// DataPackage.RequestedOperation from out-of-process drop targets so a
-    /// multi-bit request can widen the external allowed-operation mask
-    /// without making Explorer prompt for the operation on every drop.
-    /// </param>
     internal static bool TryAttach(
         DataPackage dataPackage,
-        IReadOnlyList<string> sourcePaths,
-        bool hidePreferredDropEffect = false)
+        IReadOnlyList<string> sourcePaths)
     {
         ArgumentNullException.ThrowIfNull(dataPackage);
         if (!CanAttachPaths(sourcePaths))
@@ -79,16 +49,22 @@ internal static partial class NativeShellFileDragProvider
                 return false;
             }
 
-            nint attachedDataObject = shellDataObject;
-            if (hidePreferredDropEffect)
+            filterDataObject = FileDragSourceGuardDataObject.CreateInterfacePointer(
+                shellDataObject);
+            // End-to-end self-check: the guard wrapper must still answer
+            // CF_HDROP. If the IDataObject ABI assumptions break under a new
+            // WASDK/AOT combination this fails instead of silently shipping
+            // an empty payload.
+            if (filterDataObject == 0 ||
+                !HasFileDropFormat(filterDataObject))
             {
-                filterDataObject =
-                    PreferredDropEffectFilterDataObject.CreateInterfacePointer(
-                        shellDataObject);
-                attachedDataObject = filterDataObject;
+                App.Log(
+                    "[DragStart] Guarded Shell data object failed its " +
+                    "CF_HDROP self-check.");
+                return false;
             }
 
-            int result = SetDataObject(dataPackage, attachedDataObject);
+            int result = SetDataObject(dataPackage, filterDataObject);
             if (result < 0)
             {
                 App.Log(
@@ -99,8 +75,7 @@ internal static partial class NativeShellFileDragProvider
 
             App.LogVerbose(
                 $"[DragStart] Attached native Shell file data object " +
-                $"paths={sourcePaths.Count} " +
-                $"hidePreferredDropEffect={hidePreferredDropEffect}");
+                $"paths={sourcePaths.Count} sourceGuard=True");
             return true;
         }
         catch (Exception ex)
@@ -112,7 +87,7 @@ internal static partial class NativeShellFileDragProvider
         }
         finally
         {
-            PreferredDropEffectFilterDataObject.ReleaseInterfacePointer(
+            FileDragSourceGuardDataObject.ReleaseInterfacePointer(
                 filterDataObject);
             ReleaseInterface(shellDataObject);
         }
@@ -206,7 +181,7 @@ internal static partial class NativeShellFileDragProvider
                 Marshal.ThrowExceptionForHR(ParseItemIdList(
                     normalizedPaths[index],
                     out absoluteItemIdLists[index]));
-                childItemIdLists[index] = ILFindLastID(
+                childItemIdLists[index] = ShellItemDragNativeMethods.ILFindLastID(
                     absoluteItemIdLists[index]);
                 if (childItemIdLists[index] == 0)
                 {
@@ -219,7 +194,7 @@ internal static partial class NativeShellFileDragProvider
             Guid interfaceId = s_dataObjectInterfaceId;
             fixed (nint* children = childItemIdLists)
             {
-                int result = SHCreateDataObject(
+                int result = ShellItemDragNativeMethods.SHCreateDataObject(
                     parentItemIdList,
                     (uint)childItemIdLists.Length,
                     children,
@@ -251,7 +226,7 @@ internal static partial class NativeShellFileDragProvider
         string path,
         out nint itemIdList)
     {
-        int result = SHParseDisplayName(
+        int result = ShellItemDragNativeMethods.SHParseDisplayName(
             path,
             0,
             out itemIdList,
@@ -362,7 +337,7 @@ internal static partial class NativeShellFileDragProvider
     {
         if (itemIdList != 0)
         {
-            CoTaskMemFree(itemIdList);
+            ShellItemDragNativeMethods.CoTaskMemFree(itemIdList);
         }
     }
 }

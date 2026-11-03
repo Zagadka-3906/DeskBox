@@ -187,7 +187,6 @@ public sealed record GlanceCalendarDay(
 {
     public bool HasTraditionalText => !string.IsNullOrWhiteSpace(TraditionalText);
     public bool HasFestival => !string.IsNullOrWhiteSpace(FestivalText);
-    public bool HasTraditionalTextOnly => HasTraditionalText && !HasFestival;
     public bool HasSecondaryText => HasFestival || HasTraditionalText;
 }
 
@@ -209,7 +208,6 @@ public sealed record GlanceCalendarMonth(
     IReadOnlyList<GlanceCalendarDay> Days,
     string TraditionalTitle = "")
 {
-    public bool HasTraditionalTitle => !string.IsNullOrWhiteSpace(TraditionalTitle);
 }
 
 public sealed record GlanceCalendarEvent(

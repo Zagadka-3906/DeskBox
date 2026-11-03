@@ -53,15 +53,10 @@ public sealed class DisplayAreaWatcherService : IDisposable
     /// </summary>
     public event Action? DisplaysChanged;
 
-    /// <summary>
-    /// The current number of displays.
-    /// </summary>
-    public int DisplayCount => _displayCount;
-
     public DisplayAreaWatcherService(DispatcherQueue dispatcherQueue)
     {
         _dispatcherQueue = dispatcherQueue;
-        _messageSubclassProc = MessageWindowSubclassProc;
+        _messageSubclassProc = CallbackDepth.WrapSubclassProc(MessageWindowSubclassProc);
         _pollTimer = dispatcherQueue.CreateTimer();
         _pollTimer.Interval = TimeSpan.FromMilliseconds(PollIntervalMs);
         _pollTimer.IsRepeating = true;

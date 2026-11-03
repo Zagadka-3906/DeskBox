@@ -1,10 +1,15 @@
-using DeskBox.Controls;
+﻿using DeskBox.Controls;
+using DeskBox.Features.Todo;
+using DeskBox.Features.Search;
+using DeskBox.Features.Backup;
+using DeskBox.Contracts;
 using DeskBox.Helpers;
 using DeskBox.Models;
 using DeskBox.Platform;
 using DeskBox.Services;
 using DeskBox.ViewModels;
 using DeskBox.Views.SettingsSections;
+using CommunityToolkit.WinUI.Controls;
 using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.UI;
@@ -25,14 +30,12 @@ namespace DeskBox.Views;
 public sealed partial class SettingsWindow : Window
 {
     private sealed record FeatureWidgetRowElements(
-        Border Container,
-        WidgetTitleIcon Icon,
-        TextBlock Title,
-        TextBlock Description,
-        Button? SettingsButton,
+        SettingsCard Card,
+        DeskBox.Controls.WidgetTitleIcon TitleIcon,
+        TextBlock TitleText,
+        TextBlock DescriptionText,
         Button? ResetButton,
         ToggleSwitch? Toggle,
-        FontIcon? Arrow,
         bool HasSettingsPage,
         bool HasReset,
         bool HasToggle);
@@ -43,9 +46,6 @@ public sealed partial class SettingsWindow : Window
     private const int MinWindowHeight = 560;
     private const int WindowWorkAreaMargin = 48;
     private const double ContentMaxWidth = 760;
-    private const double SettingsSearchMinWidth = 260;
-    private const double SettingsSearchMaxWidth = 520;
-    private const double SettingsSearchWidthRatio = 0.5;
     private const double PageSidePadding = 20;
     private const double RowStackContentThreshold = 620;
     private const double NarrowTitleThreshold = 560;
@@ -54,7 +54,6 @@ public sealed partial class SettingsWindow : Window
     private static readonly TimeSpan SectionLayoutSettleDelay = TimeSpan.FromMilliseconds(90);
     private const uint WmGetMinMaxInfo = 0x0024;
     private const uint WmNcDestroy = 0x0082;
-    private const uint WmReservedHotkeyCapture = 0x8443;
     private static readonly UIntPtr SettingsWindowSubclassId = new(1);
 
     private readonly ThemeService _themeService;
@@ -71,13 +70,11 @@ public sealed partial class SettingsWindow : Window
     private readonly DispatcherTimer _sectionLayoutSettleTimer = new() { Interval = SectionLayoutSettleDelay };
     private readonly PointerEventHandler _settingsRootPointerPressedHandler;
     private readonly PointerEventHandler _settingsRootPointerReleasedHandler;
-    private readonly ReservedHotkeyHookService _hotkeyRecordingHook = new();
     private bool _isSubclassInstalled;
     private bool _isClosed;
     private bool _allowRealClose;
     private bool _hasShownOnce;
     private bool _isAppearanceSliderDragging;
-    private bool _isRecordingHotkey;
     private bool _isRefreshingHotkeyControls;
     private bool _isRefreshingFeatureWidgetList;
     private bool _isSyncingNavigationSelection;
@@ -100,6 +97,7 @@ public sealed partial class SettingsWindow : Window
             ["AppearanceDetail"] = new("AppearanceDetail", "Settings.Appearance.DetailTitle", null, "AppearanceDetail"),
             ["FeatureWidgets"] = new("FeatureWidgets", "Settings.Section.FeatureWidgets", null, "FeatureWidgets"),
             ["Interaction"] = new("Interaction", "Settings.Section.Interaction", null, "Interaction"),
+            ["Displays"] = new("Displays", "Settings.Displays.Title", "General", "General"),
             ["Advanced"] = new("Advanced", "Settings.Section.Advanced", null, "Interaction"),
             ["Maintenance"] = new("Maintenance", "Settings.Section.Maintenance", null, "Maintenance"),
             ["About"] = new("About", "Settings.Nav.About", null, "About"),
@@ -118,9 +116,6 @@ public sealed partial class SettingsWindow : Window
             ["AppearanceDensitySettings"] = new("AppearanceDensitySettings", "Settings.Density.Title", "Appearance", "Appearance"),
             ["AppearanceWindowSettings"] = new("AppearanceWindowSettings", "Settings.Group.AppVisual.Title", "Appearance", "Appearance"),
             ["AppearanceAnimationSettings"] = new("AppearanceAnimationSettings", "Settings.Group.Animation.Title", "Appearance", "Appearance"),
-            ["CapsuleBehaviorSettings"] = new("CapsuleBehaviorSettings", "Settings.Capsule.HoverResponse.Title", "CapsuleMode", "CapsuleMode"),
-            ["CapsuleArrangementSettings"] = new("CapsuleArrangementSettings", "Settings.Capsule.ArrangementDetails.Title", "CapsuleMode", "CapsuleMode"),
-            ["CapsuleAnimationSettings"] = new("CapsuleAnimationSettings", "Settings.Capsule.Animation.Title", "CapsuleMode", "CapsuleMode"),
             ["CapsuleOverridesSettings"] = new("CapsuleOverridesSettings", "Settings.Capsule.Overrides.Title", "CapsuleMode", "CapsuleMode"),
             ["BackupRestoreSettings"] = new("BackupRestoreSettings", "Settings.DataBackup.Title", "Maintenance", "Maintenance"),
             ["CloudBackupSettings"] = new("CloudBackupSettings", "Settings.CloudBackup.Title", "Maintenance", "Maintenance"),
@@ -129,8 +124,69 @@ public sealed partial class SettingsWindow : Window
         };
 
     public SettingsViewModel ViewModel { get; }
+    private readonly SearchSettingsViewModel _searchSettingsViewModel;
+    private readonly BackupSettingsViewModel _backupSettingsViewModel;
+    private readonly BackupRestoreActions _backupRestoreActions;
+    private readonly IBackupCommands _backupCommands;
+    private readonly DeskBox.Features.Music.MusicSettingsViewModel _musicSettingsViewModel;
+    private readonly DeskBox.Features.QuickCapture.QuickCaptureSettingsViewModel _quickCaptureSettingsViewModel;
+    private readonly TodoSettingsViewModel _todoSettingsViewModel;
+    private readonly DeskBox.Features.Weather.WeatherSettingsViewModel _weatherSettingsViewModel;
+    private readonly DeskBox.Features.Interaction.InteractionSettingsViewModel _interactionSettingsViewModel;
+    private readonly DeskBox.Features.FileStack.FileStackSettingsViewModel _fileStackSettingsViewModel;
+    private readonly DeskBox.Features.FeatureWidgets.FeatureWidgetsSettingsViewModel _featureWidgetsSettingsViewModel;
+    private readonly DeskBox.Features.FileDisplay.FileDisplaySettingsViewModel _fileDisplaySettingsViewModel;
+    private readonly DeskBox.Features.ManagedStorage.ManagedStorageSettingsViewModel _managedStorageSettingsViewModel;
+    private readonly DeskBox.Features.Appearance.AppearanceSettingsViewModel _appearanceSettingsViewModel;
+    private readonly DeskBox.Features.Capsule.CapsuleSettingsViewModel _capsuleSettingsViewModel;
+    private readonly DeskBox.Features.GroupNavigation.GroupNavigationSettingsViewModel _groupNavigationSettingsViewModel;
+    private readonly DeskBox.Features.Performance.PerformanceSettingsViewModel _performanceSettingsViewModel;
 
-    public SettingsWindow(SettingsService settingsService, ThemeService themeService, LocalizationService localizationService)
+    /// <summary>
+    /// The file-display section's editor. Exposed for the AOT managed-UI
+    /// persistence smoke, which toggles the section's real binding surface;
+    /// the section itself reaches the editor through its DataContext.
+    /// </summary>
+    public DeskBox.Features.FileDisplay.FileDisplaySettingsViewModel FileDisplaySettings =>
+        _fileDisplaySettingsViewModel;
+
+    /// <summary>
+    /// The appearance-section editor. Exposed for the AOT managed-UI
+    /// persistence smoke, which drives the section family's real binding
+    /// surface; the sections themselves reach the editor through their
+    /// DataContext.
+    /// </summary>
+    public DeskBox.Features.Appearance.AppearanceSettingsViewModel AppearanceSettings =>
+        _appearanceSettingsViewModel;
+
+    /// <summary>
+    /// The file-stack section's editor. Exposed for the AOT deep-settings
+    /// smoke and the section's code-behind rule handlers; the section itself
+    /// reaches the editor through its DataContext.
+    /// </summary>
+    public DeskBox.Features.FileStack.FileStackSettingsViewModel FileStackSettings =>
+        _fileStackSettingsViewModel;
+
+    public SettingsWindow(SettingsService settingsService, ThemeService themeService, LocalizationService localizationService,
+        TodoSettingsViewModel todoSettings,
+        DeskBox.Features.Weather.WeatherSettingsViewModel weatherSettings,
+        SearchSettingsViewModel searchSettings,
+        BackupSettingsViewModel backupSettings, BackupRestoreActions backupRestoreActions,
+            IQuickCaptureSettings quickCaptureSettings,
+            DeskBox.Features.QuickCapture.QuickCaptureSettingsViewModel quickCaptureSettingsEditor,
+            ISearchFeatureSettings searchFeatureSettings,
+        IBackupCommands backupCommands,
+        DeskBox.Features.Appearance.AppearanceSettingsViewModel appearanceSettings,
+        DeskBox.Features.Capsule.CapsuleSettingsViewModel capsuleSettings,
+        DeskBox.Features.Interaction.InteractionSettingsViewModel interactionSettings,
+        DeskBox.Features.FileDisplay.FileDisplaySettingsViewModel fileDisplaySettings,
+        DeskBox.Features.FileStack.FileStackSettingsViewModel fileStackSettings,
+        DeskBox.Features.GroupNavigation.GroupNavigationSettingsViewModel groupNavigationSettings,
+        DeskBox.Features.FeatureWidgets.FeatureWidgetsSettingsViewModel featureWidgetsSettings,
+        DeskBox.Features.Music.MusicSettingsViewModel musicSettings,
+        DeskBox.Features.ManagedStorage.ManagedStorageSettingsViewModel managedStorageSettings,
+        DeskBox.Features.Maintenance.MaintenanceSettingsViewModel maintenanceSettings,
+        DeskBox.Features.Performance.PerformanceSettingsViewModel performanceSettings)
     {
         var constructionStopwatch = Stopwatch.StartNew();
         long previousCheckpointMilliseconds = 0;
@@ -145,9 +201,31 @@ public sealed partial class SettingsWindow : Window
         }
 
         _settingsService = settingsService;
+        _backupCommands = backupCommands;
+        _searchSettingsViewModel = searchSettings;
+        _backupSettingsViewModel = backupSettings;
+        _backupRestoreActions = backupRestoreActions;
+        _musicSettingsViewModel = musicSettings;
+        _quickCaptureSettingsViewModel = quickCaptureSettingsEditor;
+        _todoSettingsViewModel = todoSettings;
+        _weatherSettingsViewModel = weatherSettings;
+        _interactionSettingsViewModel = interactionSettings;
+        _fileStackSettingsViewModel = fileStackSettings;
+        _featureWidgetsSettingsViewModel = featureWidgetsSettings;
+        _fileDisplaySettingsViewModel = fileDisplaySettings;
+        _managedStorageSettingsViewModel = managedStorageSettings;
+        _appearanceSettingsViewModel = appearanceSettings;
+        _capsuleSettingsViewModel = capsuleSettings;
+        _groupNavigationSettingsViewModel = groupNavigationSettings;
+        _performanceSettingsViewModel = performanceSettings;
         _themeService = themeService;
         _localizationService = localizationService;
-        ViewModel = new SettingsViewModel(settingsService, themeService, localizationService, App.Current.AppUpdateService);
+        ViewModel = new SettingsViewModel(settingsService, themeService, todoSettings, weatherSettings,
+            backupSettings, quickCaptureSettings, quickCaptureSettingsEditor, searchFeatureSettings, appearanceSettings,
+            capsuleSettings, interactionSettings, fileDisplaySettings, fileStackSettings,
+            groupNavigationSettings, featureWidgetsSettings, musicSettings,
+            managedStorageSettings, maintenanceSettings, performanceSettings, localizationService,
+            App.Current.AppUpdateService);
         LogConstructionCheckpoint("view-model");
         _settingsRootPointerPressedHandler = SettingsRoot_PointerPressedHandled;
         _settingsRootPointerReleasedHandler = SettingsRoot_PointerReleasedHandled;
@@ -155,12 +233,21 @@ public sealed partial class SettingsWindow : Window
         LogConstructionCheckpoint("xaml");
         
         // ✅ Set localized title
-        this.Title = _localizationService.T("Window.Settings.Title");
+        this.Title = _localizationService.T("Settings.WindowTitle");
         
         InitializeSettingsSectionElements();
         LogConstructionCheckpoint("section-registry");
 
         SettingsRoot.DataContext = ViewModel;
+        // The General section stays on the shell (language and startup are
+        // host-lifeline surfaces, batch 50 adjudication), but its two
+        // cross-domain combos reach their section editors through
+        // element-level DataContexts: the inline performance preset combo
+        // and the attachment-storage combo resolve their {Binding} paths
+        // against the performance / feature-widgets editors exactly like
+        // the migrated sections do.
+        PerformanceModeInlineComboBox.DataContext = _performanceSettingsViewModel;
+        AttachmentStorageModeComboBox.DataContext = _featureWidgetsSettingsViewModel;
         Bindings.Initialize();
         SettingsRoot.AddHandler(
             UIElement.PointerPressedEvent,
@@ -179,7 +266,7 @@ public sealed partial class SettingsWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
-        _windowSubclassProc = WindowSubclassProc;
+        _windowSubclassProc = CallbackDepth.WrapSubclassProc(WindowSubclassProc);
         _hWnd = WindowNative.GetWindowHandle(this);
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(_hWnd);
         _appWindow = AppWindow.GetFromWindowId(windowId);
@@ -235,11 +322,16 @@ public sealed partial class SettingsWindow : Window
             return;
         }
 
+        // A fresh reveal re-arms the floating update-activity card: its
+        // dismissal is per window session (the PowerToys pattern).
+        ViewModel.BeginUpdateActivitySession();
         // Reveal-time calibration: a missed ColorValuesChanged (or any other
         // break in the refresh chain) can never leave the window visibly
         // frozen on a stale theme.
         _themeService.ApplyToWindow(this);
         _appWindow.Show();
+        UpdateSearchSettingsActivity();
+        UpdateBackupSettingsActivity();
         // Route through the manager so a quick-reveal raised session (widget
         // group held topmost) lifts this window above the widgets instead of
         // leaving it in the normal band below them. Outside a session this is
@@ -281,6 +373,22 @@ public sealed partial class SettingsWindow : Window
         RefreshVisibleSettingsPageData();
         UpdateResponsiveLayout(GetWindowWidth());
         ApplyToggleSwitchContentVisibility();
+    }
+
+    // The file-name width/line cards migrated from the density section bind
+    // through the appearance editor (FileNameWidthScale, FileNameLineCount and
+    // their option lists live there), while the file-display section's
+    // DataContext is the file-display editor. Re-target just this panel when
+    // it loads, mirroring the element-level DataContext pattern the General
+    // section uses for its cross-domain combos.
+    private void FileNameLayoutPanel_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_isClosed || sender is not StackPanel panel)
+        {
+            return;
+        }
+
+        panel.DataContext = _appearanceSettingsViewModel;
     }
 
     private void SettingsRoot_Loaded(object sender, RoutedEventArgs e)
@@ -325,7 +433,13 @@ public sealed partial class SettingsWindow : Window
         }
 
         args.Cancel = true;
+        // Hiding the window does not close an open ContentDialog, and the
+        // hotkey recorder's only hook teardown is its Closing event — force
+        // it shut or its keyboard hook keeps swallowing input system-wide.
+        global::DeskBox.Views.Dialogs.HotkeyRecorderDialog.ShutdownActiveRecorder();
         _appWindow.Hide();
+        UpdateSearchSettingsActivity();
+        UpdateBackupSettingsActivity();
         App.Current.WidgetManager?.ReleaseRaisedBandGuest(
             _hWnd,
             "settings-hidden");
@@ -343,6 +457,14 @@ public sealed partial class SettingsWindow : Window
         }
 
         _isClosed = true;
+        // The app-scoped update service outlives this window; its download
+        // event mirror must not keep the view model alive.
+        ViewModel.DetachFromUpdateService();
+        global::DeskBox.Views.Dialogs.HotkeyRecorderDialog.ShutdownActiveRecorder();
+        WindowsCompatibilityService.ReleaseTitleBarExtensions(this, _appWindow);
+        UpdateSearchSettingsActivity();
+        _searchSettingsViewModel.Dispose();
+        _backupSettingsViewModel.Deactivate();
         Activated -= SettingsWindow_Activated;
         _appWindow.Closing -= SettingsWindow_AppWindowClosing;
         Closed -= SettingsWindow_Closed;
@@ -351,14 +473,13 @@ public sealed partial class SettingsWindow : Window
         SettingsRoot.ActualThemeChanged -= SettingsRoot_ActualThemeChanged;
         SettingsRoot.RemoveHandler(UIElement.PointerPressedEvent, _settingsRootPointerPressedHandler);
         SettingsRoot.RemoveHandler(UIElement.PointerReleasedEvent, _settingsRootPointerReleasedHandler);
-        App.Current.CloudBackupService.BackupRunCompleted -= OnCloudBackupRunCompleted;
+        if (_cloudBackupCollectionChanged is not null)
+            _backupSettingsViewModel.RemoteSnapshotItems.CollectionChanged -= _cloudBackupCollectionChanged;
 
         _resizeSettleTimer.Stop();
         _resizeSettleTimer.Tick -= ResizeSettleTimer_Tick;
         _sectionLayoutSettleTimer.Stop();
         _sectionLayoutSettleTimer.Tick -= SectionLayoutSettleTimer_Tick;
-        _isRecordingHotkey = false;
-        _hotkeyRecordingHook.Dispose();
         ClearSettingsSearchHighlight();
         ClearFeatureSettingsExpanderCallbacks();
         foreach (FrameworkElement section in _settingsSectionElements.Values)
@@ -379,7 +500,9 @@ public sealed partial class SettingsWindow : Window
 
         if (AppearanceDetailSection is not null)
         {
-            AppearanceDetailSection.ViewModel = null;
+            AppearanceDetailSection.FileStack = null;
+            AppearanceDetailSection.FeatureWidgets = null;
+            AppearanceDetailSection.Interaction = null;
         }
         if (CapsuleModeSection is not null)
         {
@@ -429,11 +552,6 @@ public sealed partial class SettingsWindow : Window
         }
 
         DispatcherQueue.TryEnqueue(RefreshFeatureWidgetList);
-    }
-
-    private Brush CreateFeatureWidgetIconBrush()
-    {
-        return new SolidColorBrush(IsEffectiveSettingsThemeDark() ? Colors.White : Colors.Black);
     }
 
     private bool IsEffectiveSettingsThemeDark()
@@ -525,15 +643,22 @@ public sealed partial class SettingsWindow : Window
         PageScroller.Padding = isNarrow
             ? new Thickness(PageSidePadding, 16, PageSidePadding, 34)
             : new Thickness(PageSidePadding, 16, PageSidePadding, 38);
+        SettingsBreadcrumbHost.Padding = new Thickness(PageSidePadding, 16, PageSidePadding, 0);
 
-        double searchWidth = Math.Min(
-            SettingsSearchMaxWidth,
-            Math.Max(SettingsSearchMinWidth, width * SettingsSearchWidthRatio));
-
-        SettingsSearchBox.Width = searchWidth;
+        // The search box has no explicit Height (a fixed 32px height corrupted
+        // the template's re-measure on width changes: corners flattened and
+        // the query icon escaped the box). Width stays responsive so the box
+        // keeps its intended size instead of collapsing to MinWidth.
+        SettingsSearchBox.Width = Math.Min(
+            520,
+            Math.Max(260, width * 0.5));
 
         ContentHost.Width = Math.Min(ContentMaxWidth, availableContentWidth);
         ContentHost.MaxWidth = ContentMaxWidth;
+        // The breadcrumb lives outside the scroller; mirror the content width
+        // math so its leading edge stays aligned with the cards below.
+        SettingsBreadcrumbBar.Width = Math.Min(ContentMaxWidth, availableContentWidth);
+        SettingsBreadcrumbBar.MaxWidth = ContentMaxWidth;
         if (PathActionsPanel is not null)
         {
             PathActionsPanel.HorizontalAlignment = isNarrow ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
@@ -557,6 +682,8 @@ public sealed partial class SettingsWindow : Window
             StoreSupportButton.HorizontalAlignment = isNarrow ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
             UpdateActionsPanel.HorizontalAlignment = isNarrow ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
             UpdateActionsPanel.Orientation = isNarrow ? Orientation.Vertical : Orientation.Horizontal;
+            UpdateCheckActionsPanel.HorizontalAlignment = isNarrow ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
+            UpdateCheckActionsPanel.Orientation = isNarrow ? Orientation.Vertical : Orientation.Horizontal;
             OneClickUpdateButton.HorizontalAlignment = isNarrow ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
             ViewReleaseNotesButton.HorizontalAlignment = isNarrow ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
             OpenManualUpdateDownloadButton.HorizontalAlignment = isNarrow ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
@@ -746,18 +873,6 @@ public sealed partial class SettingsWindow : Window
         UIntPtr subclassId,
         UIntPtr refData)
     {
-        if (message == WmReservedHotkeyCapture)
-        {
-            if (_isRecordingHotkey)
-            {
-                _ = ApplyRecordedHotkeyAsync(new GlobalHotkeyGesture(
-                    HotkeyModifierKeys.Windows,
-                    (int)VirtualKey.Space));
-            }
-
-            return IntPtr.Zero;
-        }
-
         if (message == WmGetMinMaxInfo)
         {
             var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(lParam);
@@ -818,6 +933,10 @@ public sealed partial class SettingsWindow : Window
         string? TargetHeaderKey)
     {
         public bool IsPage => TargetHeaderKey is null;
+
+        // Real matches always carry at least one breadcrumb segment; the
+        // "no results" sentinel passes an empty one and collapses the line.
+        public bool HasBreadcrumb => Breadcrumb.Length > 0;
 
         public override string ToString()
         {

@@ -1,4 +1,4 @@
-namespace DeskBox.Tests;
+﻿namespace DeskBox.Tests;
 
 public sealed class AotStage4E4ContractTests
 {
@@ -8,17 +8,31 @@ public sealed class AotStage4E4ContractTests
         string code = ReadRepositoryFile(
             "src/DeskBox/Views/SettingsSections/FileWidgetSettingsSection.xaml.cs");
 
-        Assert.Contains("using DeskBox.ViewModels;", code, StringComparison.Ordinal);
+        Assert.Contains("using DeskBox.Features.FileStack;", code, StringComparison.Ordinal);
+        Assert.Contains("using DeskBox.Features.FeatureWidgets;", code, StringComparison.Ordinal);
+        Assert.Contains("using DeskBox.Features.Interaction;", code, StringComparison.Ordinal);
         Assert.Contains(
-            "public static readonly DependencyProperty ViewModelProperty",
+            "public static readonly DependencyProperty FileStackProperty",
             code,
             StringComparison.Ordinal);
-        Assert.Contains("nameof(ViewModel)", code, StringComparison.Ordinal);
-        Assert.Contains("typeof(SettingsViewModel)", code, StringComparison.Ordinal);
+        Assert.Contains(
+            "public static readonly DependencyProperty FeatureWidgetsProperty",
+            code,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static readonly DependencyProperty InteractionProperty",
+            code,
+            StringComparison.Ordinal);
+        Assert.Contains("nameof(FileStack)", code, StringComparison.Ordinal);
+        Assert.Contains("nameof(FeatureWidgets)", code, StringComparison.Ordinal);
+        Assert.Contains("nameof(Interaction)", code, StringComparison.Ordinal);
+        Assert.Contains("typeof(FileStackSettingsViewModel)", code, StringComparison.Ordinal);
+        Assert.Contains("typeof(FeatureWidgetsSettingsViewModel)", code, StringComparison.Ordinal);
+        Assert.Contains("typeof(InteractionSettingsViewModel)", code, StringComparison.Ordinal);
         Assert.Contains("new PropertyMetadata(null)", code, StringComparison.Ordinal);
-        Assert.Contains("public SettingsViewModel? ViewModel", code, StringComparison.Ordinal);
-        Assert.Contains("(SettingsViewModel?)GetValue(ViewModelProperty)", code, StringComparison.Ordinal);
-        Assert.Contains("SetValue(ViewModelProperty, value);", code, StringComparison.Ordinal);
+        Assert.Contains("public FileStackSettingsViewModel? FileStack", code, StringComparison.Ordinal);
+        Assert.Contains("public FeatureWidgetsSettingsViewModel? FeatureWidgets", code, StringComparison.Ordinal);
+        Assert.Contains("public InteractionSettingsViewModel? Interaction", code, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -41,12 +55,12 @@ public sealed class AotStage4E4ContractTests
             1,
             CountOccurrences(
                 xaml,
-                "{x:Bind ViewModel.FileStackSettingsSummaryText, Mode=OneWay}"));
+                "{x:Bind FileStack.SettingsSummaryText, Mode=OneWay}"));
         Assert.Equal(
             1,
             CountOccurrences(
                 xaml,
-                "{x:Bind ViewModel.AvailableFileWidgetFolderOpenBehaviorOptionItems, Mode=OneWay}"));
+                "{x:Bind FeatureWidgets.AvailableFolderOpenBehaviorOptionItems, Mode=OneWay}"));
     }
 
     [Fact]
@@ -59,12 +73,12 @@ public sealed class AotStage4E4ContractTests
             1,
             CountOccurrences(
                 xaml,
-                "{x:Bind ViewModel.FileStacksEnabled, Mode=TwoWay}"));
+                "controls:SettingsComboBox.Value=\"{x:Bind FileStack.OpenMode, Mode=TwoWay}\""));
         Assert.Equal(
             1,
             CountOccurrences(
                 xaml,
-                "{x:Bind ViewModel.SelectedFileWidgetFolderOpenBehavior, Mode=TwoWay}"));
+                "{x:Bind FeatureWidgets.FolderOpenBehavior, Mode=TwoWay}"));
     }
 
     [Fact]
@@ -74,7 +88,8 @@ public sealed class AotStage4E4ContractTests
             "src/DeskBox/Views/SettingsSections/FileWidgetSettingsSection.xaml");
 
         Assert.DoesNotContain("{Binding ", xaml, StringComparison.Ordinal);
-        Assert.Equal(5, CountOccurrences(xaml, "{x:Bind ViewModel."));
+        Assert.DoesNotContain("{x:Bind ViewModel.", xaml, StringComparison.Ordinal);
+        Assert.Equal(6, CountOccurrences(xaml, "{x:Bind "));
     }
 
     [Fact]
@@ -88,13 +103,17 @@ public sealed class AotStage4E4ContractTests
             "section.DataContext = ViewModel;",
             StringComparison.Ordinal);
         int bridgeAssignment = factory.IndexOf(
-            "fileSettings.ViewModel = ViewModel;",
+            "fileSettings.FileStack = _fileStackSettingsViewModel;",
             StringComparison.Ordinal);
         int rootAttachment = factory.IndexOf("ContentHost.Children.Add(section);", StringComparison.Ordinal);
         int bridgeClear = code.IndexOf(
-            "AppearanceDetailSection.ViewModel = null;",
+            "AppearanceDetailSection.FileStack = null;",
             StringComparison.Ordinal);
-        int viewModelDispose = code.IndexOf("ViewModel.Dispose();", StringComparison.Ordinal);
+        // Match the shell property, not a child such as _searchSettingsViewModel.
+        var disposeCall = System.Text.RegularExpressions.Regex.Match(
+            code, @"(?m)^[ \t]*ViewModel\.Dispose\(\);");
+        Assert.True(disposeCall.Success);
+        int viewModelDispose = disposeCall.Index;
 
         Assert.True(rootCreation >= 0 && rootAssignment > rootCreation);
         Assert.True(bridgeAssignment > rootAssignment && bridgeAssignment < rootAttachment);
@@ -102,23 +121,24 @@ public sealed class AotStage4E4ContractTests
     }
 
     [Fact]
-    public void SettingsViewModel_NotifiesCurrentCompiledBindingLeaves()
+    public void SectionEditors_NotifyCurrentCompiledBindingLeaves()
     {
         string fileStack = ReadRepositoryFile(
-            "src/DeskBox/ViewModels/SettingsViewModel.FileStackOptions.cs");
-        string featureOptions = ReadRepositoryFile(
-            "src/DeskBox/ViewModels/SettingsViewModel.FeatureOptions.cs");
-        string selectionOptions = ReadRepositoryFile(
-            "src/DeskBox/ViewModels/SettingsViewModel.SelectionOptions.cs");
+            "src/DeskBox/Features/FileStack/FileStackSettingsViewModel.cs");
+        string featureWidgets = ReadRepositoryFile(
+            "src/DeskBox/Features/FeatureWidgets/FeatureWidgetsSettingsViewModel.cs");
+        string interaction = ReadRepositoryFile(
+            "src/DeskBox/Features/Interaction/InteractionSettingsViewModel.cs");
 
-        Assert.Contains("OnPropertyChanged(nameof(FileStackSettingsSummaryText));", fileStack, StringComparison.Ordinal);
-        Assert.Contains("OnPropertyChanged(nameof(FileStackAutoStacking));", fileStack, StringComparison.Ordinal);
-        Assert.Contains("SetProperty(", featureOptions, StringComparison.Ordinal);
-        Assert.Contains("_selectedFileWidgetFolderOpenBehavior", featureOptions, StringComparison.Ordinal);
+        Assert.Contains("OnPropertyChanged(nameof(SettingsSummaryText));", fileStack, StringComparison.Ordinal);
+        Assert.Contains("SetProperty(ref _autoStacking", fileStack, StringComparison.Ordinal);
+        Assert.Contains("SetProperty(", featureWidgets, StringComparison.Ordinal);
+        Assert.Contains("_folderOpenBehavior", featureWidgets, StringComparison.Ordinal);
         Assert.Contains(
-            "OnPropertyChanged(nameof(AvailableFileWidgetFolderOpenBehaviorOptions));",
-            selectionOptions,
+            "OnPropertyChanged(nameof(AvailableFolderOpenBehaviorOptionItems));",
+            featureWidgets,
             StringComparison.Ordinal);
+        Assert.Contains("SetProperty(ref _fileItemContextMenuEnabled", interaction, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -140,7 +160,7 @@ public sealed class AotStage4E4ContractTests
     {
         string app = ReadRepositoryFile("src/DeskBox/App.xaml");
         string contentWindow = ReadRepositoryFile("src/DeskBox/Views/ContentWidgetWindow.xaml");
-        Assert.Equal(2, CountOccurrences(app, "{Binding "));
+        Assert.Equal(0, CountOccurrences(app, "{Binding "));
         Assert.Equal(1, CountOccurrences(contentWindow, "{Binding "));
     }
 
@@ -166,10 +186,10 @@ public sealed class AotStage4E4ContractTests
         string audit = ReadRepositoryFile("scripts/publish-aot-audit.ps1");
         string project = ReadRepositoryFile("src/DeskBox/DeskBox.csproj");
 
-        Assert.Contains("$stage4E4MaximumWmc1510Count = 866", audit, StringComparison.Ordinal);
+        Assert.Contains("$stage4E4MaximumWmc1510Count = 790", audit, StringComparison.Ordinal);
         Assert.Contains("Stage 4E-4 WMC1510 count regressed above its ceiling", audit, StringComparison.Ordinal);
         Assert.Contains("Native AOT stage 5B-4C3B2B1", project, StringComparison.Ordinal);
-        Assert.Contains("four typed ViewModel bridge bindings", project, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("three typed section-editor bridges", project, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("DeskBoxRustNative=true", project, StringComparison.Ordinal);
     }
 
