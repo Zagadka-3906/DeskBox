@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "szu.dorm-electricity",
   "name": "宿舍用电",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Zagadka-3906",
   "description": "查询深圳大学宿舍剩余电量、用电和缴费记录。",
   "icon": "⚡",
@@ -16,6 +16,7 @@
     "pageCount": "1",
     "room": "",
     "balance": "—",
+    "runtimeEstimate": "—",
     "recordedAt": "",
     "period": "",
     "status": "正在读取电量…"
@@ -36,6 +37,7 @@
       "stateMap": {
         "room": "room",
         "balance": "balance",
+        "runtimeEstimate": "runtimeEstimate",
         "recordedAt": "recordedAt",
         "period": "period",
         "status": "status",
@@ -47,8 +49,8 @@
   "root": "main",
   "elements": {
     "main": {
-      "type": "Grid", "rows": "Auto,Auto,*,Auto", "rowSpacing": 8,
-      "padding": "12", "children": ["toolbar", "balanceCard", "history", "footer"]
+      "type": "Grid", "rows": "Auto,Auto,*,Auto", "rowSpacing": 6,
+      "padding": "12,8,12,8", "children": ["toolbar", "balanceCard", "history", "footer"]
     },
     "toolbar": {
       "type": "Grid", "columns": "*,Auto", "columnSpacing": 6,
@@ -70,16 +72,28 @@
       ]
     },
     "balanceCard": {
-      "type": "Card", "row": 1, "tone": "subtle", "padding": "10,6,10,6", "children": ["summary"]
+      "type": "Card", "row": 1, "tone": "subtle", "padding": "12,6,12,6", "children": ["summary"]
     },
     "summary": {
-      "type": "Grid", "columns": "*,Auto", "columnSpacing": 6, "children": ["where", "balance"]
+      "type": "Grid", "rows": "Auto,Auto", "rowSpacing": 3, "children": ["metrics", "readingMeta"]
     },
-    "where": { "type": "Stack", "spacing": 2, "children": ["room", "readingTime"] },
-    "room": { "type": "Text", "text": "${state.room}", "style": "bodyStrong", "maxLines": 1 },
-    "readingTime": { "type": "Text", "text": "${state.recordedAt}", "style": "caption", "maxLines": 1 },
-    "balance": { "type": "Text", "column": 1, "text": "${state.balance}", "style": "subtitle",
-      "verticalAlignment": "center", "tooltip": "剩余电量" },
+    "metrics": {
+      "type": "Grid", "columns": "*,Auto", "columnSpacing": 12, "children": ["remaining", "runtime"]
+    },
+    "remaining": { "type": "Stack", "spacing": 0, "children": ["balanceLabel", "balance"] },
+    "balanceLabel": { "type": "Text", "text": "剩余电量", "style": "caption", "color": "secondary" },
+    "balance": { "type": "Text", "text": "${state.balance}", "style": "title", "fontSize": 30,
+      "fontWeight": "bold", "maxLines": 1 },
+    "runtime": { "type": "Stack", "column": 1, "spacing": 4, "children": ["runtimeLabel", "runtimeValue"] },
+    "runtimeLabel": { "type": "Text", "text": "预计可使用", "style": "caption", "color": "secondary" },
+    "runtimeValue": { "type": "Text", "text": "${state.runtimeEstimate}", "style": "title", "fontSize": 20,
+      "maxLines": 1, "tooltip": "按近 7 天已有抄表记录的日均用电估算，至少需要 3 天数据" },
+    "readingMeta": {
+      "type": "Grid", "row": 1, "columns": "*,Auto", "columnSpacing": 6, "children": ["room", "readingTime"]
+    },
+    "room": { "type": "Text", "text": "${state.room}", "style": "caption", "color": "secondary", "maxLines": 1 },
+    "readingTime": { "type": "Text", "column": 1, "text": "${state.recordedAt}", "style": "caption",
+      "color": "secondary", "maxLines": 1 },
     "history": {
       "type": "List", "row": 2, "collection": "history", "variant": "divided",
       "emptyState": { "title": "${state.sourceStatus == 'error' ? '请在右上角菜单连接本机服务' : state.status}", "icon": "info" },
