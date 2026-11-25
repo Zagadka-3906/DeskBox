@@ -51,6 +51,7 @@ public sealed partial class WidgetManager
         // The deliberate-placement clock: profile activation arbitrates
         // against this stamp (a stored entry that predates it loses).
         config.LastUserPlacementUtc = DateTimeOffset.UtcNow;
+        config.LastUserPlacementTopologyKey = _settingsService.Settings.WidgetLayout.ActiveWidgetTopologyKey;
 
         WidgetScreenInfo display = FindDisplayByMaxIntersection(screens, hostBounds);
         var workArea = new Windows.Graphics.RectInt32(
@@ -64,8 +65,30 @@ public sealed partial class WidgetManager
         // placements skip this — the window already captured the capsule.
         if (captureIntent)
         {
+            bool isPureMove = source is
+                WidgetPlacementSource.Drag or
+                WidgetPlacementSource.CoordinatedMove or
+                WidgetPlacementSource.MenuMove or
+                WidgetPlacementSource.MoveAll;
+            double preservedLogicalWidth = isPureMove &&
+                config.BoundsCoordinateVersion == WidgetConfig.CurrentBoundsCoordinateVersion &&
+                double.IsFinite(config.Width) && config.Width > 0
+                ? config.Width
+                : 0;
+            double preservedLogicalHeight = isPureMove &&
+                config.BoundsCoordinateVersion == WidgetConfig.CurrentBoundsCoordinateVersion &&
+                double.IsFinite(config.Height) && config.Height > 0
+                ? config.Height
+                : 0;
+
             WidgetPositioningService.CaptureAnchor(config, contentBounds, workArea);
             WidgetPositioningService.UpdateConfigFromPhysicalBounds(config, hostBounds, workArea);
+
+            if (preservedLogicalWidth > 0 && preservedLogicalHeight > 0)
+            {
+                config.Width = preservedLogicalWidth;
+                config.Height = preservedLogicalHeight;
+            }
         }
 
         // 2. Home update ("放哪属于哪"), with the documented exceptions.
@@ -94,12 +117,14 @@ public sealed partial class WidgetManager
         {
             group.ScreenBindingMode = config.ScreenBindingMode;
             group.BoundScreenId = config.BoundScreenId;
+            group.LastUserPlacementUtc = config.LastUserPlacementUtc;
+            group.LastUserPlacementTopologyKey = config.LastUserPlacementTopologyKey;
             SynchronizeGroupLayoutFromMember(config);
         }
 
         // 4. The active profile entry becomes authoritative (after the home
         // update so the captured entry reflects the final intent).
-        MarkSurfaceEntryAuthoritative(config);
+        MarkSurfaceEntryAuthoritative(config, authoredAtUtc: config.LastUserPlacementUtc);
 
         // 5. Capsule display fields are derived from the surface (spec 4.4).
         if (config.CompactPlacement is { } placement)
@@ -200,41 +225,50 @@ public sealed partial class WidgetManager
     private void MarkSurfaceEntryAuthoritative(
         WidgetConfig config,
         string? stableIdOverride = null,
-        string? deviceNameOverride = null)
+        string? deviceNameOverride = null,
+        DateTimeOffset? authoredAtUtc = null)
     {
-        var settings = _settingsService.Settings;
-        string? activeKey = settings.ActiveWidgetTopologyKey;
-        if (string.IsNullOrWhiteSpace(activeKey) ||
-            !settings.WidgetTopologyLayouts.TryGetValue(activeKey, out var profile))
+        // Deep review R15 (F2 audit): the capture + promote below mutates
+        // the topology dictionary and entry fields on the shared graph —
+        // run under the graph gate so a concurrent locked serialization
+        // cannot interleave (dictionary mutation during enumeration throws
+        // and surfaces as a failed placement commit).
+        _settingsService.MutateGraphUnderLock(() =>
         {
-            return;
-        }
+            var settings = _settingsService.Settings;
+            string? activeKey = settings.ActiveWidgetTopologyKey;
+            if (string.IsNullOrWhiteSpace(activeKey) ||
+                !settings.WidgetTopologyLayouts.TryGetValue(activeKey, out var profile))
+            {
+                return;
+            }
 
-        // Refresh/create the entry from the just-committed config first
-        // (no-op when the topology key is transiently mismatched), then
-        // promote it. Capture never promotes on its own (spec 4.2), so the
-        // promotion has to happen here.
-        _topologyLayoutService.CaptureCurrentSurface(settings, config);
-        WidgetGroupConfig? group = WidgetGroupSettings.FindByMember(settings, config.Id);
-        string surfaceId = group is not null
-            ? _topologyLayoutService.ResolveSurfaceIdForGroup(group)
-            : config.Id;
-        if (!profile.Surfaces.TryGetValue(surfaceId, out var entry) || entry is null)
-        {
-            return;
-        }
+            // Refresh/create the entry from the just-committed config first
+            // (no-op when the topology key is transiently mismatched), then
+            // promote it. Capture never promotes on its own (spec 4.2), so the
+            // promotion has to happen here.
+            _topologyLayoutService.CaptureCurrentSurface(settings, config);
+            WidgetGroupConfig? group = WidgetGroupSettings.FindByMember(settings, config.Id);
+            string surfaceId = group is not null
+                ? _topologyLayoutService.ResolveSurfaceIdForGroup(group)
+                : config.Id;
+            if (!profile.Surfaces.TryGetValue(surfaceId, out var entry) || entry is null)
+            {
+                return;
+            }
 
-        entry.IsAuthoritative = true;
-        entry.AuthoredAtUtc = DateTimeOffset.UtcNow;
-        if (!string.IsNullOrWhiteSpace(stableIdOverride))
-        {
-            entry.PositionMonitorStableId = stableIdOverride;
-        }
+            entry.IsAuthoritative = true;
+            entry.AuthoredAtUtc = authoredAtUtc ?? DateTimeOffset.UtcNow;
+            if (!string.IsNullOrWhiteSpace(stableIdOverride))
+            {
+                entry.PositionMonitorStableId = stableIdOverride;
+            }
 
-        if (!string.IsNullOrWhiteSpace(deviceNameOverride))
-        {
-            entry.PositionMonitorDeviceName = deviceNameOverride;
-        }
+            if (!string.IsNullOrWhiteSpace(deviceNameOverride))
+            {
+                entry.PositionMonitorDeviceName = deviceNameOverride;
+            }
+        });
     }
 
     /// <summary>

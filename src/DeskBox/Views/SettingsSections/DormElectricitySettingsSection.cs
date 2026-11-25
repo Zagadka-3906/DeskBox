@@ -63,10 +63,11 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         UpdateRoomMode();
     }
 
-    public void Initialize(SettingsService settings, LocalizationService localization)
+    internal void Initialize(SettingsService settings, LocalizationService localization, ICredentialStore? credentials)
     {
         _settings = settings;
         _localization = localization;
+        _pushCredentials = credentials;
         foreach (DormElectricityCampus campus in DormElectricityService.Campuses)
         {
             _campus.Items.Add(new ComboBoxItem { Content = campus.Name, Tag = campus.Client });
@@ -78,7 +79,6 @@ public sealed partial class DormElectricitySettingsSection : UserControl
         }
         _localization.LanguageChanged += Localization_LanguageChanged;
         UpdateLabels();
-        InitializeNotificationSettings();
     }
 
     public async Task RefreshFromSettingsAsync()

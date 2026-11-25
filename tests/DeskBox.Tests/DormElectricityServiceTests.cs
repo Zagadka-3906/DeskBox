@@ -26,6 +26,33 @@ public sealed class DormElectricityServiceTests
     }
 
     [Fact]
+    public void DailyUsage_SparseReadingsKeepKnownDaysAndShowOnlyTheTotalForTheGap()
+    {
+        string html = Table(
+            UsageRow(1, "2026-11-17 23:59:00.0", "50", "120"),
+            UsageRow(2, "2026-11-18 23:59:00.0", "46.75", "123.25"),
+            UsageRow(3, "2026-11-19 23:59:00.0", "44.25", "125.75"),
+            UsageRow(4, "2026-11-24 23:59:00.0", "36.1", "133.9"));
+        IReadOnlyList<DormElectricityDay> readings = DormElectricityService.ParseUsageRows(html);
+
+        var days = DormElectricityService.BuildRecentDays(
+            readings, new DateTime(2026, 11, 18), new DateTime(2026, 11, 25));
+        Assert.Collection(days,
+            day => Assert.Equal(3.25m, day.UsedKwh),
+            day => Assert.Equal(2.5m, day.UsedKwh),
+            day =>
+            {
+                Assert.Null(day.UsedKwh);
+                Assert.Equal(new DormElectricityUsageInterval(new DateTime(2026, 11, 20), 8.15m),
+                    day.IntervalUsage);
+            });
+
+        var shortPeriod = DormElectricityService.BuildRecentDays(
+            readings, new DateTime(2026, 11, 22), new DateTime(2026, 11, 25));
+        Assert.Null(Assert.Single(shortPeriod).IntervalUsage);
+    }
+
+    [Fact]
     public void DailyUsage_FiltersToSelectedPeriodButUsesPreviousDayAsBaseline()
     {
         string html = Table(

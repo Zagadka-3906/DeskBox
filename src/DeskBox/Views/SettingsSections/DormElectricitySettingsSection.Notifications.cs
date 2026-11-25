@@ -1,7 +1,6 @@
 using System.Globalization;
 using DeskBox.Models;
 using DeskBox.Services;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -53,9 +52,6 @@ public sealed partial class DormElectricitySettingsSection
         _pushClear.Click += ClearNotification_Click;
         return root;
     }
-
-    private void InitializeNotificationSettings() =>
-        _pushCredentials = App.Current.Services.GetRequiredService<ICredentialStore>();
 
     private async Task RefreshNotificationSettingsAsync(DormElectricitySettingsSlice options)
     {
@@ -152,7 +148,6 @@ public sealed partial class DormElectricitySettingsSection
                 _pushKey.Password = string.Empty;
                 _pushKeyState.Text = T(ServerChanService.IsValidSendKey(savedKey)
                     ? "DormElectricity.Push.KeySaved" : "DormElectricity.Push.KeyMissing");
-                _ = App.Current.CheckDormNotificationNowAsync();
             }
         }
         catch (Exception ex)

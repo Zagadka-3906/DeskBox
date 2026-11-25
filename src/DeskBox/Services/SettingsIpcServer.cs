@@ -1,0 +1,671 @@
+namespace DeskBox.Services;
+
+using System.Collections.Frozen;
+using System.Diagnostics;
+using System.IO.Pipes;
+using System.Text;
+using System.Text.Json;
+using DeskBox.Platform;
+using DeskBox.Services.Ipc;
+
+/// <summary>
+/// Server half of the settings-host IPC pipe (batch 3b). Runs in the main
+/// process: accepts one settings-host connection at a time (re-accepting
+/// after a host restart), dispatches request envelopes to the registered
+/// handler on thread-pool threads, and pushes event envelopes to whatever
+/// client is currently connected. The pipe is ACL'd to the current user.
+/// </summary>
+public sealed class SettingsIpcServer : IAsyncDisposable
+{
+    private readonly string _pipeName;
+    private readonly Func<string, string?, CancellationToken, Task<(bool Ok, string? Payload, string? Error)>> _dispatcher;
+    private readonly CancellationTokenSource _cts = new();
+    private Task? _acceptLoop;
+    private NamedPipeServerStream? _current;
+    private volatile bool _suppressEventsForCurrent;
+    private readonly object _writeLock = new();
+    private readonly SemaphoreSlim _pipeWriteGate = new(1, 1);
+    private long _latestPreviewEnvelopeId;
+
+    /// <summary>
+    /// Marks the currently connected settings host as exiting (after <c>HostFarewell</c>)
+    /// so post-farewell background event pushes are skipped cleanly instead of racing
+    /// the closing pipe and logging spurious <c>IO_PipeBroken</c> errors, while still
+    /// allowing the response envelope for <c>HostFarewell</c> itself to complete.
+    /// </summary>
+    public void SuppressEventsForExitingClient()
+    {
+        _suppressEventsForCurrent = true;
+    }
+
+    public bool HasConnectedClient
+    {
+        get
+        {
+            lock (_writeLock)
+            {
+                return _current is { IsConnected: true };
+            }
+        }
+    }
+    // Batch R11: see the dispatch loop and SendEventAsync.
+    private readonly SemaphoreSlim _dispatchGate = new(16, 16);
+    private long _nextEventId = -1;
+    private volatile bool _disposed;
+
+    /// <summary>
+    /// Deep review R13 (R12 debt ②, diseases C/F): write commands whose
+    /// application order must match their wire order. A dropdown flipped
+    /// twice sends two of these back-to-back; concurrent dispatch could
+    /// apply the second (fast) before the first (slow) and leave the
+    /// OLDER value standing on the desktop. Layout writes and the feature
+    /// switch are the same-key families; everything else (reads, long
+    /// ops, notifications) keeps concurrent dispatch.
+    /// </summary>
+    private static readonly FrozenSet<string> OrderedApplyMethods = new HashSet<string>(StringComparer.Ordinal)
+    {
+        SettingsIpcMethods.SettingsCommit,
+        SettingsIpcMethods.AppearancePreview,
+        SettingsIpcMethods.WidgetGlanceApplyData,
+        SettingsIpcMethods.WidgetCustomApplyMutation,
+        SettingsIpcMethods.WidgetCustomApplyStoreData,
+        SettingsIpcMethods.WidgetApplyGroupPresentation,
+        SettingsIpcMethods.WidgetApplyGroupNavDefaults,
+        SettingsIpcMethods.WidgetApplyLayoutPreferences,
+        SettingsIpcMethods.WidgetResetCapsuleOverrides,
+        SettingsIpcMethods.AppearanceClearPerWidgetBackgrounds,
+        SettingsIpcMethods.AppearanceResetWidgetChromeOverrides,
+        SettingsIpcMethods.WidgetSyncFeatureEnabled,
+        // Deep review R13-2 (D10 audit): the hotkey enable toggles are
+        // same-key writes too — a fast double-flip could apply the second
+        // dispatch before the first and leave the OLDER registration
+        // standing (same disease C/F family as the layout writes).
+        SettingsIpcMethods.HotkeySetEnabled,
+        SettingsIpcMethods.HotkeyDoubleClickSet,
+        SettingsIpcMethods.SearchHotkeySetEnabled,
+        SettingsIpcMethods.ClipboardHotkeySetEnabled,
+        SettingsIpcMethods.ClipboardHotkeyRefreshRegistration,
+        SettingsIpcMethods.BackupSettingsUpdate,
+        SettingsIpcMethods.BackupSettingsSave,
+        Studio.StudioIpcMethods.ReportWindowState,
+        Studio.StudioIpcMethods.CreateWidget,
+        Studio.StudioIpcMethods.UpdateWidgetManifest,
+        Studio.StudioIpcMethods.ApplyMutation,
+        Studio.StudioIpcMethods.ApplyStoreData,
+        Studio.StudioIpcMethods.SetWidgetEnabled,
+        Studio.StudioIpcMethods.RemoveWidget,
+        Studio.StudioIpcMethods.CommitAgentStage,
+        Studio.StudioIpcMethods.DiscardAgentStage,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    // Bounded: a wedged ordered consumer applies backpressure to the read
+    // loop (which applies it to the client) instead of growing unboundedly;
+    // the 32MB line guard already bounds a single item.
+    private readonly System.Threading.Channels.Channel<(SettingsIpcEnvelope Envelope, System.IO.Pipes.NamedPipeServerStream Origin)> _orderedLane =
+        System.Threading.Channels.Channel.CreateBounded<(SettingsIpcEnvelope, System.IO.Pipes.NamedPipeServerStream)>(
+            new System.Threading.Channels.BoundedChannelOptions(64)
+            {
+                FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
+            });
+
+    private Task? _orderedLaneLoop;
+
+    private async Task RunOrderedLaneAsync()
+    {
+        await foreach ((SettingsIpcEnvelope envelope, System.IO.Pipes.NamedPipeServerStream origin) in
+                       _orderedLane.Reader.ReadAllAsync(_cts.Token))
+        {
+            try
+            {
+                // Coalesce superseded streaming slider previews while keeping
+                // strict FIFO order relative to SettingsCommit.
+                if (string.Equals(envelope.Method, SettingsIpcMethods.AppearancePreview, StringComparison.Ordinal) &&
+                    envelope.Id != Volatile.Read(ref _latestPreviewEnvelopeId))
+                {
+                    await WriteAsync(new SettingsIpcEnvelope(
+                        envelope.Id,
+                        SettingsIpcEnvelope.TypeResponse,
+                        envelope.Method,
+                        Ok: true,
+                        Payload: null,
+                        Error: null), origin);
+                    continue;
+                }
+
+                await RunBoundedDispatchAsync(envelope, origin);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                App.Log($"[SettingsIpc] Ordered dispatch failed for {envelope.Method}: {ex.Message}");
+            }
+        }
+    }
+
+    private SettingsIpcServer(
+        string pipeName,
+        Func<string, string?, CancellationToken, Task<(bool Ok, string? Payload, string? Error)>> dispatcher)
+    {
+        _pipeName = pipeName;
+        _dispatcher = dispatcher;
+    }
+
+    /// <param name="dispatcher">
+    /// Method dispatcher: returns (ok, payload, error) for a request. Runs on
+    /// a pool thread — marshal to the UI thread where needed.
+    /// </param>
+    /// <param name="expectedClientIdentityProvider">
+    /// Batch R12 security audit: the pipe grants its full method surface
+    /// (shutdown, installer launch, snapshot reads) to whoever connects.
+    /// The DACL stops other users/sandboxes, but any same-user process can
+    /// still connect. When this provider returns an identity, a connecting
+    /// client whose process id does not match is dropped before a single
+    /// request is served. The optional start time closes the pid-reuse hole
+    /// (deep review R13, D5/G1): a recycled pid from a different process
+    /// has a different creation time and is rejected even when the number
+    /// matches. Null disables the gate (loopback tests, dev probes).
+    /// </param>
+    public static SettingsIpcServer Start(
+        string pipeName,
+        Func<string, string?, CancellationToken, Task<(bool Ok, string? Payload, string? Error)>> dispatcher,
+        Func<(uint Pid, DateTime? StartTime)?>? expectedClientIdentityProvider = null,
+        Action? onClientDisconnected = null)
+    {
+        var server = new SettingsIpcServer(pipeName, dispatcher)
+        {
+            _expectedClientIdentityProvider = expectedClientIdentityProvider,
+            _onClientDisconnected = onClientDisconnected,
+        };
+        server._acceptLoop = Task.Run(server.AcceptLoopAsync);
+        server._orderedLaneLoop = Task.Run(server.RunOrderedLaneAsync);
+        return server;
+    }
+
+    private Func<(uint Pid, DateTime? StartTime)?>? _expectedClientIdentityProvider;
+    private Action? _onClientDisconnected;
+
+    public event Action? ClientDisconnected;
+
+    /// <summary>
+    /// Drops the connection when the client process is not the settings
+    /// host this main process spawned (or the dying one still saying
+    /// goodbye). See Start's doc for the threat model.
+    /// </summary>
+    private bool ClientIdentityMatches(NamedPipeServerStream stream)
+    {
+        if (_expectedClientIdentityProvider is not { } provider)
+        {
+            return true;
+        }
+
+        (uint expected, DateTime? expectedStart) = provider() ?? (0, null);
+        if (expected == 0)
+        {
+            // Self-review (batch R12): "no host known" is the boot window
+            // before the first spawn — an open door, not a state to allow.
+            // The coordinator sets the identity before the spawned host can
+            // possibly connect, so rejecting here breaks nothing legitimate.
+            App.Log("[SettingsIpc] Rejected pipe client: no settings host is registered");
+            return false;
+        }
+
+        try
+        {
+            if (!Win32Helper.GetNamedPipeClientProcessId(stream.SafePipeHandle, out uint clientPid))
+            {
+                App.Log("[SettingsIpc] Client identity probe failed; dropping connection");
+                return false;
+            }
+
+            if (clientPid != expected)
+            {
+                App.Log($"[SettingsIpc] Rejected pipe client pid={clientPid} (expected {expected})");
+                return false;
+            }
+
+            // Pid-reuse guard (deep review R13, D5/G1): a same-number
+            // different-process impostor cannot reproduce the spawn-time
+            // creation stamp. A missing expected stamp (lookup failed at
+            // spawn) keeps the pid-only contract.
+            if (expectedStart is { } expectedStartTime &&
+                Process.GetProcessById((int)clientPid).StartTime - expectedStartTime is
+                    { } drift && Math.Abs(drift.TotalMilliseconds) > 500)
+            {
+                App.Log(
+                    $"[SettingsIpc] Rejected pipe client pid={clientPid}: start time mismatch (suspected pid reuse)");
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            App.Log($"[SettingsIpc] Client identity check failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task AcceptLoopAsync()
+    {
+        while (!_cts.IsCancellationRequested)
+        {
+            NamedPipeServerStream stream;
+            try
+            {
+                // Creation-time security descriptor (deep review R13, R12
+                // debt ④): user-only DACL plus a medium-integrity
+                // no-write-up label, applied by the kernel at creation —
+                // a low-integrity same-user process (sandboxed browser
+                // content) is denied before any handshake. The native path
+                // replaces NamedPipeServerStreamAcl because the managed
+                // creator cannot carry SACL labels, and post-creation
+                // labeling needs WRITE_OWNER the handle never had.
+                Microsoft.Win32.SafeHandles.SafePipeHandle? handle = Win32Helper.TryCreateSettingsIpcPipe(
+                    @"\\.\pipe\" + _pipeName,
+                    bufferSize: 64 * 1024);
+                if (handle is null)
+                {
+                    throw new InvalidOperationException("CreateNamedPipeW failed");
+                }
+
+                stream = new NamedPipeServerStream(
+                    PipeDirection.InOut,
+                    true,
+                    false,
+                    handle);
+                await stream.WaitForConnectionAsync(_cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                App.Log($"[SettingsIpc] Accept failed: {ex.Message}");
+                await Task.Delay(TimeSpan.FromMilliseconds(300), _cts.Token).ContinueWith(_ => { });
+                continue;
+            }
+
+            // Identity gate BEFORE the stream becomes the event target
+            // (re-review of R12): rejecting after the assignment left a
+            // microsecond window where pushed events were written to the
+            // rejected client's pipe.
+            if (!ClientIdentityMatches(stream))
+            {
+                await stream.DisposeAsync();
+                continue;
+            }
+
+            lock (_writeLock)
+            {
+                _suppressEventsForCurrent = false;
+                _current = stream;
+            }
+
+            try
+            {
+                await ServeConnectionAsync(stream);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                App.Log($"[SettingsIpc] Connection ended: {ex.Message}");
+            }
+            finally
+            {
+                lock (_writeLock)
+                {
+                    if (ReferenceEquals(_current, stream))
+                    {
+                        _current = null;
+                    }
+                }
+                await stream.DisposeAsync();
+            }
+        }
+    }
+
+    private async Task ServeConnectionAsync(NamedPipeServerStream stream)
+    {
+        try
+        {
+            const int MaxEnvelopeChars = 32 * 1024 * 1024;
+            using var reader = new PipeBoundedLineReader(stream);
+            while (!_cts.IsCancellationRequested && stream.IsConnected)
+            {
+                string? line = await reader.ReadLineAsync(
+                    MaxEnvelopeChars,
+                    _cts.Token,
+                    onOversizedLine: static _ =>
+                        App.Log($"[SettingsIpc] Dropping connection: envelope line exceeds the {MaxEnvelopeChars}-char guard"));
+                if (line is null)
+                {
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                SettingsIpcEnvelope? envelope;
+                try
+                {
+                    envelope = JsonSerializer.Deserialize<SettingsIpcEnvelope>(
+                        line,
+                        SettingsIpcJsonContext.Default.SettingsIpcEnvelope);
+                }
+                catch (JsonException ex)
+                {
+                    App.Log($"[SettingsIpc] Malformed envelope dropped: {ex.Message}");
+                    continue;
+                }
+
+                if (envelope is null)
+                {
+                    continue;
+                }
+
+                if (envelope.Type == SettingsIpcEnvelope.TypeRequest)
+                {
+                    if (string.Equals(envelope.Method, SettingsIpcMethods.AppearancePreview, StringComparison.Ordinal))
+                    {
+                        Volatile.Write(ref _latestPreviewEnvelopeId, envelope.Id);
+                    }
+
+                    // Deep review R13 (R12 debt ②, diseases C/F): same-key
+                    // write commands must APPLY in wire order. The bounded
+                    // concurrent dispatch below lets a fast second write
+                    // overtake a slow first one, so ordered methods ride a
+                    // single FIFO lane instead — the read loop enqueues in
+                    // arrival order, one consumer applies them sequentially.
+                    if (OrderedApplyMethods.Contains(envelope.Method))
+                    {
+                        await _orderedLane.Writer.WriteAsync((envelope, stream), _cts.Token);
+                    }
+                    else
+                    {
+                        // Batch R11: bounded concurrent dispatch.
+                        _ = Task.Run(() => RunBoundedDispatchAsync(envelope, stream));
+                    }
+                }
+                // Client→server events have no consumer yet; batch 3d routes them.
+            }
+        }
+        finally
+        {
+            lock (_writeLock)
+            {
+                if (ReferenceEquals(_current, stream))
+                {
+                    _current = null;
+                }
+            }
+
+            try
+            {
+                _onClientDisconnected?.Invoke();
+                ClientDisconnected?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                App.Log($"[SettingsIpc] Client disconnect callback failed: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task RunBoundedDispatchAsync(SettingsIpcEnvelope envelope, NamedPipeServerStream origin)
+    {
+        await _dispatchGate.WaitAsync(_cts.Token).ConfigureAwait(false);
+        try
+        {
+            bool ok;
+            string? payload;
+            string? error;
+            try
+            {
+                (ok, payload, error) = await _dispatcher(envelope.Method, envelope.Payload, _cts.Token);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                payload = null;
+                error = ex.Message;
+            }
+
+            // Batch R12 (sequence audit, defect D): a long command (10min
+            // migrate) outliving its connection must not have its response
+            // written to a NEWLY connected host — with id-only correlation
+            // that could mis-complete an unrelated in-flight request and
+            // flip state. Bind the answer to the requesting stream.
+            await WriteAsync(new SettingsIpcEnvelope(
+                envelope.Id,
+                SettingsIpcEnvelope.TypeResponse,
+                envelope.Method,
+                ok,
+                payload,
+                error), origin);
+        }
+        finally
+        {
+            _dispatchGate.Release();
+        }
+    }
+
+    /// <summary>Pushes an event envelope to the connected host, if any.</summary>
+    /// <remarks>
+    /// Batch R11: the write is a synchronous stream.Write under the send
+    /// lock — when the host stops draining its pipe (suspended or wedged)
+    /// the OS buffer fills and the write blocks indefinitely. Pushers
+    /// include main-process UI threads (topology, local-persist, tray,
+    /// shutdown), so the write now runs on a single dedicated writer task
+    /// fed by this queue: callers enqueue and return immediately, event
+    /// order is preserved, and even a wedged pipe costs exactly one
+    /// blocked writer thread instead of a pile-up.
+    /// </remarks>
+    public Task SendEventAsync(string method, string? payload)
+    {
+        // Batch R12: bounded with drop-oldest — a host that stops draining
+        // (wedged or suspended) while the main process pushes at high
+        // frequency (download progress) must not grow the queue unboundedly;
+        // progress-class events tolerate loss, ordering among survivors is
+        // preserved.
+        _eventQueue.Enqueue(new SettingsIpcEnvelope(
+            Interlocked.Decrement(ref _nextEventId),
+            SettingsIpcEnvelope.TypeEvent,
+            method,
+            Ok: true,
+            payload,
+            Error: null));
+        bool droppedAny = false;
+        while (_eventQueue.Count > 4096 && _eventQueue.TryDequeue(out _))
+        {
+            Interlocked.Increment(ref _droppedEventCount);
+            droppedAny = true;
+        }
+
+        if (droppedAny && Interlocked.CompareExchange(ref _droppedEventLogGate, 1, 0) == 0)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30), _cts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    Interlocked.Exchange(ref _droppedEventLogGate, 0);
+                    return;
+                }
+
+                Interlocked.Exchange(ref _droppedEventLogGate, 0);
+                long dropped = Interlocked.Exchange(ref _droppedEventCount, 0);
+                if (dropped > 0)
+                {
+                    App.Log($"[SettingsIpc] Dropped {dropped} backlog events (host not draining)");
+                }
+            });
+        }
+
+        _eventQueueSignal.Release();
+        // Single-writer discipline (batch R11 self-review): two concurrent
+        // first-pushes could both see a null writer and race two drain
+        // loops onto the same queue — the write lock would still serialize
+        // the bytes, but cross-writer interleaving could flip two events'
+        // order. The guard keeps exactly one writer alive for FIFO.
+        lock (_eventQueue)
+        {
+            _eventWriter ??= Task.Run(EventWriterLoopAsync);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentQueue<SettingsIpcEnvelope> _eventQueue = new();
+    private readonly SemaphoreSlim _eventQueueSignal = new(0);
+    private Task? _eventWriter;
+    private long _droppedEventCount;
+    private int _droppedEventLogGate;
+
+    private async Task EventWriterLoopAsync()
+    {
+        while (true)
+        {
+            try
+            {
+                await _eventQueueSignal.WaitAsync(_cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            while (_eventQueue.TryDequeue(out SettingsIpcEnvelope? envelope))
+            {
+                await WriteAsync(envelope).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task WriteAsync(SettingsIpcEnvelope envelope, NamedPipeServerStream? origin = null)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        NamedPipeServerStream? stream;
+        lock (_writeLock)
+        {
+            stream = _current;
+        }
+
+        // Responses stay bound to their requesting connection (batch R12
+        // bleed-through fix); event pushes carry no origin and go to
+        // whichever host is connected now.
+        if (origin is not null && !ReferenceEquals(stream, origin))
+        {
+            return;
+        }
+
+        if (origin is null && _suppressEventsForCurrent)
+        {
+            return;
+        }
+
+        if (stream is null || !stream.IsConnected)
+        {
+            return;
+        }
+
+        try
+        {
+            await _pipeWriteGate.WaitAsync(_cts.Token).ConfigureAwait(false);
+            try
+            {
+                lock (_writeLock)
+                {
+                    if (!ReferenceEquals(_current, stream) ||
+                        !stream.IsConnected ||
+                        (origin is null && _suppressEventsForCurrent))
+                    {
+                        return;
+                    }
+                }
+
+                await PipeEnvelopeSerializer.WriteEnvelopeAsync(
+                    stream,
+                    jsonWriter => JsonSerializer.Serialize(jsonWriter, envelope, SettingsIpcJsonContext.Default.SettingsIpcEnvelope),
+                    _cts.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _pipeWriteGate.Release();
+            }
+        }
+        catch (OperationCanceledException) when (_disposed || _cts.IsCancellationRequested)
+        {
+        }
+        catch (IOException) when (origin is null && (_suppressEventsForCurrent || !stream.IsConnected))
+        {
+            // Expected when an outbound push races client-side pipe teardown.
+        }
+        catch (ObjectDisposedException) when (_disposed || !ReferenceEquals(_current, stream))
+        {
+        }
+        catch (Exception ex)
+        {
+            App.Log($"[SettingsIpc] Event write failed: {ex.Message}");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _cts.Cancel();
+        NamedPipeServerStream? stream;
+        lock (_writeLock)
+        {
+            stream = _current;
+            _current = null;
+        }
+        if (stream is not null)
+        {
+            await stream.DisposeAsync();
+        }
+        try
+        {
+            if (_acceptLoop is not null)
+            {
+                await _acceptLoop;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        _orderedLane.Writer.TryComplete();
+        try
+        {
+            if (_orderedLaneLoop is not null)
+            {
+                await _orderedLaneLoop;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        _cts.Dispose();
+    }
+}

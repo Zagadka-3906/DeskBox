@@ -432,22 +432,29 @@ internal sealed partial class DormElectricityWidgetView : UserControl, IDisposab
         for (DateTime dateValue = end; dateValue >= start; dateValue = dateValue.AddDays(-1))
         {
             byDate.TryGetValue(dateValue, out DormElectricityDay? day);
+            DormElectricityUsageInterval? interval = day?.IntervalUsage;
+            string dateLabel = interval is null
+                ? dateValue.ToString("MM-dd")
+                : $"{interval.FirstDay:MM-dd}–{dateValue:MM-dd}";
+            string valueLabel = interval is not null
+                ? _localization.Format("DormElectricity.UsageTotal", interval.UsedKwh.ToString("0.##"))
+                : day?.UsedKwh?.ToString("0.##") ?? T("DormElectricity.ReadingUnavailable");
             var card = new Border
             {
                 Background = new SolidColorBrush(Color.FromArgb(18, 120, 120, 120)),
                 CornerRadius = new CornerRadius(7),
                 Padding = new Thickness(9, 6, 9, 6),
-                Width = horizontal ? 82 : double.NaN
+                MinWidth = horizontal ? 82 : 0
             };
             var date = new TextBlock
             {
-                Text = dateValue.ToString("MM-dd"),
+                Text = dateLabel,
                 FontSize = 11,
                 Opacity = 0.7
             };
             var value = new TextBlock
             {
-                Text = day?.UsedKwh?.ToString("0.##") ?? "—",
+                Text = valueLabel,
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Right
@@ -469,8 +476,13 @@ internal sealed partial class DormElectricityWidgetView : UserControl, IDisposab
                 row.Children.Add(value);
                 card.Child = row;
             }
-            ToolTipService.SetToolTip(card, dateValue.ToString("yyyy-MM-dd") + " · " +
-                (day?.UsedKwh?.ToString("0.##") ?? "—") + " " + T("DormElectricity.KwhUnit"));
+            string fullDate = interval is null
+                ? dateValue.ToString("yyyy-MM-dd")
+                : $"{interval.FirstDay:yyyy-MM-dd}–{dateValue:yyyy-MM-dd}";
+            string detail = interval is not null || day?.UsedKwh is not null
+                ? valueLabel + " " + T("DormElectricity.KwhUnit")
+                : valueLabel;
+            ToolTipService.SetToolTip(card, fullDate + " · " + detail);
             items.Children.Add(card);
         }
         var scroll = new ScrollViewer

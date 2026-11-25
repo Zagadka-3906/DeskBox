@@ -47,6 +47,7 @@ public sealed partial class BackupSettingsViewModel
     private bool _todoDataEnabled;
     private bool _quickCaptureDataEnabled;
     private bool _widgetStyleEnabled;
+    private bool _customWidgetsEnabled;
     private int _selectedIntervalMinutes = BackupOptionKinds.DefaultCloudIntervalMinutes;
     private int _selectedRetentionCount = BackupOptionKinds.DefaultCloudRetentionCount;
     private string _dragDropSummaryText = string.Empty;
@@ -134,6 +135,7 @@ public sealed partial class BackupSettingsViewModel
             IncludeTodoData = state.CloudTodoEnabled;
             IncludeQuickCaptureData = state.CloudQuickCaptureEnabled;
             IncludeWidgetStyle = state.CloudWidgetStyleEnabled;
+            IncludeCustomWidgets = state.CloudCustomWidgetsEnabled;
             SelectedIntervalMinutes = state.CloudIntervalMinutes;
             SelectedRetentionCount = state.CloudRetentionCount;
         }
@@ -150,6 +152,7 @@ public sealed partial class BackupSettingsViewModel
         OnPropertyChanged(nameof(LocalFallbackWarningText));
         OnPropertyChanged(nameof(ShowLocalFallbackWarning));
         OnPropertyChanged(nameof(ShowCustomDirectoryRecoveryNote));
+        OnPropertyChanged(nameof(CloudBackupEnabled));
         OnPropertyChanged(nameof(ShowWebDavFields));
         OnPropertyChanged(nameof(ShowHttpWarning));
         OnPropertyChanged(nameof(StatusText));
@@ -312,6 +315,7 @@ public sealed partial class BackupSettingsViewModel
                 return;
             }
 
+            OnPropertyChanged(nameof(CloudBackupEnabled));
             OnPropertyChanged(nameof(ShowWebDavFields));
             if (_isSyncingPresentation)
             {
@@ -319,6 +323,20 @@ public sealed partial class BackupSettingsViewModel
             }
 
             Update(new(CloudProvider: normalized));
+
+            // The provider dropdown is the cloud-backup master switch:
+            // turning it OFF switches every cloud domain off in the same
+            // breath (the coordinator clears them in the same persisted
+            // write; these local flips make the page reflect it instantly
+            // and send idempotent no-op updates — by then the coordinator
+            // already holds them false).
+            if (normalized == BackupOptionKinds.ProviderNone)
+            {
+                IncludeTodoData = false;
+                IncludeQuickCaptureData = false;
+                IncludeWidgetStyle = false;
+                IncludeCustomWidgets = false;
+            }
         }
     }
 
@@ -335,6 +353,13 @@ public sealed partial class BackupSettingsViewModel
                 [BackupOptionKinds.ProviderNone, BackupOptionKinds.ProviderWebDav],
                 _cachedProviderNames));
         }
+    }
+
+    /// <summary>Master switch projection for the WebDAV cloud backup SettingsExpander header.</summary>
+    public bool CloudBackupEnabled
+    {
+        get => _selectedProvider == BackupOptionKinds.ProviderWebDav;
+        set => SelectedProvider = value ? BackupOptionKinds.ProviderWebDav : BackupOptionKinds.ProviderNone;
     }
 
     /// <summary>WebDAV-only fields are hidden when the provider is off.</summary>
@@ -466,6 +491,25 @@ public sealed partial class BackupSettingsViewModel
         }
     }
 
+    public bool IncludeCustomWidgets
+    {
+        get => _customWidgetsEnabled;
+        set
+        {
+            if (!SetProperty(ref _customWidgetsEnabled, value))
+            {
+                return;
+            }
+
+            if (_isSyncingPresentation)
+            {
+                return;
+            }
+
+            Update(new(CloudCustomWidgetsEnabled: value));
+        }
+    }
+
     public int SelectedIntervalMinutes
     {
         get => _selectedIntervalMinutes;
@@ -543,20 +587,20 @@ public sealed partial class BackupSettingsViewModel
             long failureTicks = state.CloudLastFailureUtcTicks;
             string status = successTicks > 0
                 ? Format("Settings.CloudBackup.LastSuccess",
-                    new DateTimeOffset(successTicks, TimeSpan.Zero).ToLocalTime().ToString("g"))
+                    FormatLocalTimestamp(new DateTimeOffset(successTicks, TimeSpan.Zero)))
                 : Localize("Settings.CloudBackup.LastSuccess.Never");
 
             if (failureTicks > successTicks)
             {
                 status += " · " + Format("Settings.CloudBackup.LastFailure",
-                    new DateTimeOffset(failureTicks, TimeSpan.Zero).ToLocalTime().ToString("g"));
+                    FormatLocalTimestamp(new DateTimeOffset(failureTicks, TimeSpan.Zero)));
             }
 
             long unverifiedTicks = state.CloudLastUnverifiedUtcTicks;
             if (unverifiedTicks > 0)
             {
                 status += " · " + Format("Settings.CloudBackup.LastUnverified",
-                    new DateTimeOffset(unverifiedTicks, TimeSpan.Zero).ToLocalTime().ToString("g"));
+                    FormatLocalTimestamp(new DateTimeOffset(unverifiedTicks, TimeSpan.Zero)));
             }
 
             return status;
@@ -599,7 +643,7 @@ public sealed partial class BackupSettingsViewModel
             string details = item.Name;
             if (item.CreatedAtUtc is { } createdUtc)
             {
-                title = createdUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+                title = FormatLocalTimestamp(createdUtc);
                 string stem = item.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
                     ? item.Name[..^4] : item.Name;
                 string tail = stem.Split('-').Last();
@@ -800,6 +844,19 @@ public sealed partial class BackupSettingsViewModel
         }
 
         return options;
+    }
+
+    private static string FormatLocalTimestamp(DateTimeOffset utcTimestamp)
+    {
+        DateTimeOffset local = utcTimestamp.ToLocalTime();
+        try
+        {
+            return local.ToString("g", CultureInfo.CurrentCulture);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        }
     }
 
     private static IReadOnlyList<SettingsOption> WrapOptions(SettingsOption[] options) =>

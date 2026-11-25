@@ -3,7 +3,7 @@ using DeskBox.Contracts;
 namespace DeskBox.Services;
 
 /// <summary>Explicit boundary for destructive remote actions and the staged restore transaction.</summary>
-public sealed class BackupRestoreActions
+public sealed class BackupRestoreActions : IBackupRestoreActions
 {
     private readonly object _operationGate = new();
     private readonly HashSet<Task> _pending = [];
@@ -38,7 +38,7 @@ public sealed class BackupRestoreActions
         CloudBackupOptions options = CloudBackupSettingsPolicy.GetOptions(_settings.Settings);
         if (options.Endpoint != endpoint)
             throw new OperationCanceledException("The backup endpoint changed.");
-        return options;
+        return options.WithEffectiveConnectionProvider();
     }
 
     public Task DeleteSnapshotAsync(BackupEndpoint endpoint, string name,

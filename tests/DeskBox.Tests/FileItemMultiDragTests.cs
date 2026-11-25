@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using DeskBox.Controls;
 using DeskBox.Controls.WidgetContents;
 using DeskBox.Models;
@@ -34,29 +35,37 @@ public sealed class FileItemMultiDragTests
     }
 
     [Theory]
-    // Windows 11 keeps the full Copy|Move advertisement for every setting.
+    // Win11 FollowWindows advertises Copy|Move (0x3 != 0x7) with RequestedOperation=None
+    // so WinUI 3 C++ CUIElement::OnDragStarting never hits the 0x7 unset-sentinel trap,
+    // while Win10 FollowWindows (Decision A1) collapses to single-bit silent Copy
+    // (zero #32768 menu and 100% source safety in WeChat/browsers).
     [InlineData(SettingsService.ManagedDragOutActionFollowWindows, true,
         DataPackageOperation.Copy | DataPackageOperation.Move)]
-    [InlineData(SettingsService.ManagedDragOutActionMove, true,
+    [InlineData("Nonsense", true,
         DataPackageOperation.Copy | DataPackageOperation.Move)]
-    [InlineData(SettingsService.ManagedDragOutActionCopy, true,
+    [InlineData(null, true,
         DataPackageOperation.Copy | DataPackageOperation.Move)]
-    // Windows 10 collapses to a single effect: Explorer there prompts on
-    // every multi-effect drop. The silent single-bit shape cannot carry
-    // Windows' volume-dependent default, so an explicit setting performs
-    // what it says while the default (FollowWindows) and unknown values
-    // resolve to Copy — the safe side of the forced choice, because a
-    // Move-only offer makes IM-style receivers resolve Move and delete
-    // the original themselves (feedback 500).
-    [InlineData(SettingsService.ManagedDragOutActionMove, false,
-        DataPackageOperation.Move)]
-    [InlineData(SettingsService.ManagedDragOutActionCopy, false,
-        DataPackageOperation.Copy)]
     [InlineData(SettingsService.ManagedDragOutActionFollowWindows, false,
         DataPackageOperation.Copy)]
-    [InlineData("Nonsense", false, DataPackageOperation.Copy)]
-    [InlineData(null, false, DataPackageOperation.Copy)]
-    public void ResolveDragOutAllowedOperations_CollapsesToSingleEffectOnWin10(
+    [InlineData("Nonsense", false,
+        DataPackageOperation.Copy)]
+    [InlineData(null, false,
+        DataPackageOperation.Copy)]
+    // Decision 1B: Explicit Copy mode advertises Copy|Move (+ Preferred Copy) on
+    // Win11 so Explorer defaults to Copy while holding Shift temporarily overrides
+    // to Move; Win10 collapses to single-bit Copy to avoid Explorer's #32768 menu.
+    [InlineData(SettingsService.ManagedDragOutActionCopy, true,
+        DataPackageOperation.Copy | DataPackageOperation.Move)]
+    [InlineData(SettingsService.ManagedDragOutActionCopy, false,
+        DataPackageOperation.Copy)]
+    // Explicit Move mode advertises Copy|Move (+ Preferred Move) on Win11 for
+    // copy-only receiver compatibility, and single-bit Move on Win10 to bypass
+    // Explorer's multi-effect menu when opted in.
+    [InlineData(SettingsService.ManagedDragOutActionMove, true,
+        DataPackageOperation.Copy | DataPackageOperation.Move)]
+    [InlineData(SettingsService.ManagedDragOutActionMove, false,
+        DataPackageOperation.Move)]
+    public void ResolveDragOutAllowedOperations_MatchesUnifiedWin10Win11Matrix(
         string? action,
         bool isWindows11OrLater,
         DataPackageOperation expected)
@@ -69,13 +78,8 @@ public sealed class FileItemMultiDragTests
     }
 
     [Fact]
-    public void ResolveDragOutAllowedOperations_Win10DefaultNeverOffersMove()
+    public void ResolveDragOutAllowedOperations_Win11FullNegotiationAndWin10SilentDefaultCopy()
     {
-        // Feedback 500: a Move-only advertisement made the WeChat send box
-        // resolve the drop to Move and delete the original into the Recycle
-        // Bin itself. The Win10 default (FollowWindows) and unknown values
-        // must therefore advertise Copy-only: receivers can resolve at most
-        // Copy, so the original can never be removed by the target.
         foreach (string? action in new[]
                  {
                      SettingsService.ManagedDragOutActionFollowWindows,
@@ -83,14 +87,36 @@ public sealed class FileItemMultiDragTests
                      null,
                  })
         {
-            DataPackageOperation allowed =
+            Assert.Equal(
+                FileItemDragPackage.FullFollowWindowsOperations,
                 FileItemDragPackage.ResolveDragOutAllowedOperations(
                     action,
-                    isWindows11OrLater: false);
-
-            Assert.Equal(DataPackageOperation.Copy, allowed);
-            Assert.False(allowed.HasFlag(DataPackageOperation.Move));
+                    isWindows11OrLater: true));
+            Assert.Equal(
+                DataPackageOperation.Copy,
+                FileItemDragPackage.ResolveDragOutAllowedOperations(
+                    action,
+                    isWindows11OrLater: false));
+            Assert.Equal(
+                DataPackageOperation.None,
+                FileItemDragPackage.ResolveDragOutPreferredOperation(action));
         }
+
+        DataPackageOperation win11CopyDefault =
+            FileItemDragPackage.ResolveDragOutAllowedOperations(
+                SettingsService.ManagedDragOutActionCopy,
+                isWindows11OrLater: true);
+        Assert.Equal(FileItemDragPackage.SupportedOperations, win11CopyDefault);
+        Assert.Equal(
+            DataPackageOperation.Copy,
+            FileItemDragPackage.ResolveDragOutPreferredOperation(SettingsService.ManagedDragOutActionCopy));
+
+        DataPackageOperation win10CopyOnly =
+            FileItemDragPackage.ResolveDragOutAllowedOperations(
+                SettingsService.ManagedDragOutActionCopy,
+                isWindows11OrLater: false);
+        Assert.Equal(DataPackageOperation.Copy, win10CopyOnly);
+        Assert.False(win10CopyOnly.HasFlag(DataPackageOperation.Move));
     }
 
     [Fact]
@@ -220,7 +246,7 @@ public sealed class FileItemMultiDragTests
         DataPackageOperation.Copy | DataPackageOperation.Move |
             DataPackageOperation.Link,
         DataPackageOperation.Move,
-        DataPackageOperation.Link)]
+        DataPackageOperation.Copy)]
     [InlineData(
         DataPackageOperation.Link,
         DataPackageOperation.Move,
@@ -357,7 +383,7 @@ public sealed class FileItemMultiDragTests
         DataPackageOperation.Copy | DataPackageOperation.Move |
             DataPackageOperation.Link,
         DataPackageOperation.Move,
-        DataPackageOperation.Link)]
+        DataPackageOperation.Copy)]
     [InlineData(
         DataPackageOperation.Link,
         DataPackageOperation.Move,
@@ -420,7 +446,7 @@ public sealed class FileItemMultiDragTests
     [InlineData(DataPackageOperation.Move, true, false, false,
         FileSurfaceContent.ExternalDragObservation.Full)]
     [InlineData(DataPackageOperation.None, true, false, true,
-        FileSurfaceContent.ExternalDragObservation.Brief)]
+        FileSurfaceContent.ExternalDragObservation.Full)]
     [InlineData(DataPackageOperation.None, true, false, false,
         FileSurfaceContent.ExternalDragObservation.Full)]
     [InlineData(DataPackageOperation.Copy, true, false, true,
@@ -508,19 +534,22 @@ public sealed class FileItemMultiDragTests
     }
 
     [Theory]
-    [InlineData(SettingsService.ManagedDragOutActionFollowWindows)]
-    [InlineData(SettingsService.ManagedDragOutActionMove)]
-    [InlineData(SettingsService.ManagedDragOutActionCopy)]
-    [InlineData("Nonsense")]
-    [InlineData(null)]
-    public void GetDragOutResultHintKey_Win10AdvertisementNeverTeachesModifiers(
-        string? action)
+    [InlineData(SettingsService.ManagedDragOutActionMove, false, false)]
+    [InlineData(SettingsService.ManagedDragOutActionCopy, false, false)]
+    [InlineData(SettingsService.ManagedDragOutActionCopy, true, true)]
+    public void GetDragOutResultHintKey_SingleOrProtectedMovelessAdvertisementNeverTeachesMoveModifier(
+        string action,
+        bool isWindows11OrLater,
+        bool isProtectedCopyOnly)
     {
-        // Windows 10 resolves every setting to a single-effect
-        // advertisement, so the receipt there must never claim a modifier
-        // could have flipped the result.
+        // Win10 single-effect modes and protected sources (Copy | Link without Move)
+        // never advertise Move, so the receipt must never claim Shift/Ctrl could
+        // flip between Copy and Move.
         DataPackageOperation allowed =
-            FileItemDragPackage.ResolveDragOutAllowedOperations(action, false);
+            FileItemDragPackage.ResolveDragOutAllowedOperations(
+                action,
+                isWindows11OrLater,
+                isProtectedCopyOnly: isProtectedCopyOnly);
 
         string? copyKey = FileSurfaceContent.GetDragOutResultHintKey(
             DataPackageOperation.Copy,
@@ -535,9 +564,27 @@ public sealed class FileItemMultiDragTests
             moveKey.EndsWith(".NoModifiers", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void GetDragOutResultHintKey_Win11CopyModeAdvertisesCopyAndMoveAndTeachesModifiers()
+    {
+        DataPackageOperation allowed =
+            FileItemDragPackage.ResolveDragOutAllowedOperations(
+                SettingsService.ManagedDragOutActionCopy,
+                isWindows11OrLater: true,
+                isProtectedCopyOnly: false);
+
+        Assert.Equal(FileItemDragPackage.SupportedOperations, allowed);
+        Assert.Equal(
+            "Widget.DragOutTip.AfterCopy",
+            FileSurfaceContent.GetDragOutResultHintKey(DataPackageOperation.Copy, allowed));
+        Assert.Equal(
+            "Widget.DragOutTip.AfterMove",
+            FileSurfaceContent.GetDragOutResultHintKey(DataPackageOperation.Move, allowed));
+    }
+
     [Theory]
     [InlineData(DataPackageOperation.Move, true, 1, 1, DataPackageOperation.None)]
-    [InlineData(DataPackageOperation.Move, false, 1, 1, DataPackageOperation.Move)]
+    [InlineData(DataPackageOperation.Move, false, 1, 1, DataPackageOperation.Copy)]
     [InlineData(DataPackageOperation.Move, false, 1, 0, DataPackageOperation.None)]
     [InlineData(DataPackageOperation.Move, false, 2, 1, DataPackageOperation.None)]
     [InlineData(DataPackageOperation.Copy, true, 1, 0, DataPackageOperation.Copy)]
@@ -759,6 +806,22 @@ public sealed class FileItemMultiDragTests
     }
 
     [Fact]
+    public void EmptyStateTitle_UsesExplorerFolderEmptyNormallyAndElevatedWarningWhenAboveShell()
+    {
+        LocalizationService zhCn = TestServices.CreateLocalizationService(SettingsService.LanguageChinese);
+        Assert.Equal("此文件夹为空。", WidgetViewModel.ResolveEmptyStateTitle(zhCn, isElevatedAboveShell: false));
+        Assert.Equal(
+            zhCn.T("Widget.Empty.ElevatedWarning"),
+            WidgetViewModel.ResolveEmptyStateTitle(zhCn, isElevatedAboveShell: true));
+
+        LocalizationService enUs = TestServices.CreateLocalizationService(SettingsService.LanguageEnglish);
+        Assert.Equal("This folder is empty.", WidgetViewModel.ResolveEmptyStateTitle(enUs, isElevatedAboveShell: false));
+        Assert.Equal(
+            enUs.T("Widget.Empty.ElevatedWarning"),
+            WidgetViewModel.ResolveEmptyStateTitle(enUs, isElevatedAboveShell: true));
+    }
+
+    [Fact]
     public void TryMoveDisplayUnitOverrides_MovesSelectionAsOneStableBlock()
     {
         List<string> order =
@@ -896,9 +959,321 @@ public sealed class FileItemMultiDragTests
         Assert.Equal(0, insertionIndex);
     }
 
+    // The compute→apply pipeline MoveItemsForReorder runs, pinned on the
+    // FINAL order (the index-only tests above could not see the application
+    // loop: between 1.5.8 and 1.5.9 every downward drop landed wrong —
+    // single items one slot past the insertion line, multi-selections
+    // scattered — while these tests' predecessors stayed green).
+    private static List<string> ApplyFlatBlockReorder(
+        ObservableCollection<WidgetItem> items,
+        WidgetItem[] draggedItems,
+        int targetIndex)
+    {
+        bool moved = WidgetViewModel.TryComputeItemBlockReorder(
+            items,
+            draggedItems,
+            targetIndex,
+            out int insertionIndex);
+        if (moved)
+        {
+            WidgetViewModel.ApplyItemBlockReorder(
+                items,
+                draggedItems,
+                insertionIndex);
+        }
+
+        Assert.True(moved);
+        return items.Select(item => item.Path).ToList();
+    }
+
+    [Fact]
+    public void FlatBlockReorder_SingleItemLandsOnInsertionLine_Downward()
+    {
+        WidgetItem first = CreateItem("first.txt");
+        WidgetItem second = CreateItem("second.txt");
+        WidgetItem third = CreateItem("third.txt");
+        WidgetItem fourth = CreateItem("fourth.txt");
+        ObservableCollection<WidgetItem> items = [first, second, third, fourth];
+
+        // Insertion line before fourth: first must land between third and
+        // fourth, not appended after fourth.
+        List<string> order = ApplyFlatBlockReorder(items, [first], targetIndex: 3);
+
+        Assert.Equal(
+        [
+            "second.txt",
+            "third.txt",
+            "first.txt",
+            "fourth.txt"
+        ], order);
+    }
+
+    [Fact]
+    public void FlatBlockReorder_SingleItemLandsOnInsertionLine_Upward()
+    {
+        WidgetItem first = CreateItem("first.txt");
+        WidgetItem second = CreateItem("second.txt");
+        WidgetItem third = CreateItem("third.txt");
+        ObservableCollection<WidgetItem> items = [first, second, third];
+
+        List<string> order = ApplyFlatBlockReorder(items, [third], targetIndex: 0);
+
+        Assert.Equal(
+        [
+            "third.txt",
+            "first.txt",
+            "second.txt"
+        ], order);
+    }
+
+    [Fact]
+    public void FlatBlockReorder_SingleItemAppendsPastLastRealizedItem()
+    {
+        WidgetItem first = CreateItem("first.txt");
+        WidgetItem second = CreateItem("second.txt");
+        WidgetItem third = CreateItem("third.txt");
+        ObservableCollection<WidgetItem> items = [first, second, third];
+
+        List<string> order = ApplyFlatBlockReorder(items, [first], targetIndex: 3);
+
+        Assert.Equal(
+        [
+            "second.txt",
+            "third.txt",
+            "first.txt"
+        ], order);
+    }
+
+    [Fact]
+    public void FlatBlockReorder_BlockLandsContiguousBeforeTarget()
+    {
+        WidgetItem first = CreateItem("first.txt");
+        WidgetItem second = CreateItem("second.txt");
+        WidgetItem third = CreateItem("third.txt");
+        WidgetItem fourth = CreateItem("fourth.txt");
+        WidgetItem fifth = CreateItem("fifth.txt");
+        ObservableCollection<WidgetItem> items = [first, second, third, fourth, fifth];
+
+        // Same shape as TryComputeItemBlockReorder_CompensatesMovingItemsBeforeTarget:
+        // dragging first+third onto the slot before fifth must land the block
+        // at index 2 — contiguous, in display order, before fifth.
+        List<string> order = ApplyFlatBlockReorder(
+            items,
+            [first, third],
+            targetIndex: 4);
+
+        Assert.Equal(
+        [
+            "second.txt",
+            "fourth.txt",
+            "first.txt",
+            "third.txt",
+            "fifth.txt"
+        ], order);
+    }
+
+    [Fact]
+    public void FlatBlockReorder_BlockMovesUpwardContiguous()
+    {
+        WidgetItem first = CreateItem("first.txt");
+        WidgetItem second = CreateItem("second.txt");
+        WidgetItem third = CreateItem("third.txt");
+        WidgetItem fourth = CreateItem("fourth.txt");
+        ObservableCollection<WidgetItem> items = [first, second, third, fourth];
+
+        List<string> order = ApplyFlatBlockReorder(
+            items,
+            [third, fourth],
+            targetIndex: 0);
+
+        Assert.Equal(
+        [
+            "third.txt",
+            "fourth.txt",
+            "first.txt",
+            "second.txt"
+        ], order);
+    }
+
+    [Fact]
+    public void FlatBlockReorder_StraddledDropKeepsRelativeBlockOrder()
+    {
+        WidgetItem first = CreateItem("first.txt");
+        WidgetItem second = CreateItem("second.txt");
+        WidgetItem third = CreateItem("third.txt");
+        ObservableCollection<WidgetItem> items = [first, second, third];
+
+        // Insertion line before third while first is also dragged: the block
+        // keeps its relative order (first stays ahead of third).
+        List<string> order = ApplyFlatBlockReorder(
+            items,
+            [first, third],
+            targetIndex: 2);
+
+        Assert.Equal(
+        [
+            "second.txt",
+            "first.txt",
+            "third.txt"
+        ], order);
+    }
+
     private static WidgetItem CreateItem(string path) => new()
     {
         Name = path,
         Path = path
     };
+
+    [Fact]
+    public void TryPreparePaths_LeavesThePackageUnstampedForExternalHosts()
+    {
+        // Search drag-out shares this payload core but must not stamp DeskBox
+        // origin markers: a stamped package makes in-app drop targets treat
+        // the drag as a widget-internal association instead of an external
+        // file transfer (see DeskBoxDragData.IsInternalFileDrag).
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "DeskBox.Tests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string filePath = Path.Combine(tempDirectory, "search-result.txt");
+        File.WriteAllText(filePath, "payload");
+
+        try
+        {
+            var dataPackage = new DataPackage();
+
+            bool prepared = FileItemDragPackage.TryPreparePaths(
+                dataPackage,
+                [filePath],
+                _ => Array.Empty<IStorageItem>(),
+                paths => paths.Count.ToString(),
+                "search",
+                out FileItemDragPackageResult result);
+
+            Assert.True(prepared);
+            Assert.True(result.UsesNativeShellDataObject);
+            Assert.Equal([filePath], result.SourcePaths);
+            Assert.False(dataPackage.Properties.ContainsKey(
+                DeskBoxDragData.SourceWidgetIdProperty));
+            Assert.False(dataPackage.Properties.ContainsKey(
+                DeskBoxDragData.SourcePathsProperty));
+            Assert.False(dataPackage.Properties.ContainsKey(
+                DeskBoxDragData.InternalFileDragTokenProperty));
+            Assert.Equal(
+                DataPackageOperation.None,
+                dataPackage.GetView().RequestedOperation);
+            Assert.False(dataPackage.GetView().Contains(StandardDataFormats.Text));
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryPreparePaths_RejectsEmptyAndBlankPathLists()
+    {
+        Assert.False(FileItemDragPackage.TryPreparePaths(
+            new DataPackage(),
+            Array.Empty<string>(),
+            _ => Array.Empty<IStorageItem>(),
+            _ => "title",
+            "search",
+            out _));
+
+        Assert.False(FileItemDragPackage.TryPreparePaths(
+            new DataPackage(),
+            ["", " ", null!],
+            _ => Array.Empty<IStorageItem>(),
+            _ => "title",
+            "search",
+            out _));
+    }
+
+    [Fact]
+    public void TryPreparePaths_NormalizesAndDeDuplicatesCaseInsensitively()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "DeskBox.Tests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string firstPath = Path.Combine(tempDirectory, "first.txt");
+        string secondPath = Path.Combine(tempDirectory, "second.txt");
+        File.WriteAllText(firstPath, "first");
+        File.WriteAllText(secondPath, "second");
+
+        try
+        {
+            bool prepared = FileItemDragPackage.TryPreparePaths(
+                new DataPackage(),
+                // Same file three ways: exact, upper-cased, and duplicated.
+                [firstPath, firstPath.ToUpperInvariant(), firstPath],
+                _ => Array.Empty<IStorageItem>(),
+                paths => paths.Count.ToString(),
+                "search",
+                out FileItemDragPackageResult result);
+
+            Assert.True(prepared);
+            Assert.Equal([firstPath], result.SourcePaths);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolveElevatedOutboundDropIntent_Win11CopyDefaultAllowsShiftOverrideToMove_UnlessProtected()
+    {
+        Assert.Equal(
+            DeskBox.Helpers.FileDropIntent.Copy,
+            FileSurfaceContent.ResolveElevatedOutboundDropIntent(
+                SettingsService.ManagedDragOutActionCopy,
+                sameVolume: true,
+                controlDown: false,
+                shiftDown: false,
+                altDown: false));
+        Assert.Equal(
+            DeskBox.Helpers.FileDropIntent.Move,
+            FileSurfaceContent.ResolveElevatedOutboundDropIntent(
+                SettingsService.ManagedDragOutActionCopy,
+                sameVolume: true,
+                controlDown: false,
+                shiftDown: true,
+                altDown: false));
+        Assert.Equal(
+            DeskBox.Helpers.FileDropIntent.Shortcut,
+            FileSurfaceContent.ResolveElevatedOutboundDropIntent(
+                SettingsService.ManagedDragOutActionCopy,
+                sameVolume: true,
+                controlDown: false,
+                shiftDown: false,
+                altDown: true));
+
+        string internalCacheFile = Path.Combine(
+            DeskBox.Services.DeskBoxDataPathService.Current.DataDirectory,
+            "attachments",
+            "note.png");
+        Assert.True(DeskBox.Platform.DriveMediaInterop.IsProtectedDragOutSource([internalCacheFile]));
+        Assert.Equal(
+            DeskBox.Helpers.FileDropIntent.Copy,
+            FileSurfaceContent.ResolveElevatedOutboundDropIntent(
+                SettingsService.ManagedDragOutActionMove,
+                sameVolume: true,
+                controlDown: false,
+                shiftDown: false,
+                altDown: false,
+                sourcePaths: [internalCacheFile]));
+        Assert.Equal(
+            DeskBox.Helpers.FileDropIntent.None,
+            FileSurfaceContent.ResolveElevatedOutboundDropIntent(
+                SettingsService.ManagedDragOutActionCopy,
+                sameVolume: true,
+                controlDown: false,
+                shiftDown: true,
+                altDown: false,
+                sourcePaths: [internalCacheFile]));
+    }
 }

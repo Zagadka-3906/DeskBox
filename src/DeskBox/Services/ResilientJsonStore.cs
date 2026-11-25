@@ -19,13 +19,152 @@ internal static class ResilientJsonStore
     // files remain readable and writable through ordinary file handles.
     internal const int UnableToRemoveReplacedFileHResult = unchecked((int)0x80070497);
 
+    // Win32 ERROR_SHARING_VIOLATION (32): some other handle holds the target
+    // — an antivirus/indexer/sync scan, or a racing writer in another
+    // process. Same class of transient commit conflict as the 1175 above,
+    // but it used to propagate uncaught (stowed-exception fail-fast,
+    // 2026-10-26) instead of entering the retry ladder.
+    internal const int SharingViolationHResult = unchecked((int)0x80070020);
+
     private static readonly TimeSpan[] s_replaceRetryDelays =
     [
         TimeSpan.FromMilliseconds(50),
         TimeSpan.FromMilliseconds(150)
     ];
 
+    private static readonly TimeSpan[] s_readRetryDelays =
+    [
+        TimeSpan.FromMilliseconds(25),
+        TimeSpan.FromMilliseconds(75),
+        TimeSpan.FromMilliseconds(150)
+    ];
+
     internal static string GetBackupPath(string storePath) => $"{storePath}.bak";
+
+    internal static bool TryReadSchemaVersion(string json, out int schemaVersion)
+    {
+        schemaVersion = 0;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                if (doc.RootElement.TryGetProperty("schemaVersion", out System.Text.Json.JsonElement prop) &&
+                    prop.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                    prop.TryGetInt32(out int parsed))
+                {
+                    schemaVersion = parsed;
+                    return true;
+                }
+
+                if (doc.RootElement.TryGetProperty("version", out System.Text.Json.JsonElement verProp) &&
+                    verProp.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                    verProp.TryGetInt32(out int parsedVer))
+                {
+                    schemaVersion = parsedVer;
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
+    }
+
+    internal static bool HasFutureSchemaOnDisk(string storePath, int maxSupportedVersion, out int foundVersion)
+    {
+        foundVersion = 0;
+        if (string.IsNullOrWhiteSpace(storePath) || !File.Exists(storePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = new FileStream(
+                storePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            string json = reader.ReadToEnd();
+            return TryReadSchemaVersion(json, out foundVersion) && foundVersion > maxSupportedVersion;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static void PreserveFutureSchemaCopyIfMissing(string storePath, string rawJson, int rawVersion)
+    {
+        if (string.IsNullOrWhiteSpace(storePath) || string.IsNullOrEmpty(rawJson))
+        {
+            return;
+        }
+
+        string archivePath = $"{storePath}.future-v{rawVersion}.bak";
+        if (File.Exists(archivePath))
+        {
+            return;
+        }
+
+        try
+        {
+            using var stream = new FileStream(
+                archivePath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None);
+            byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(rawJson);
+            stream.Write(utf8, 0, utf8.Length);
+        }
+        catch
+        {
+        }
+    }
+
+    internal static T DeserializeWithFutureSchemaFallback<T>(
+        string storePath,
+        string json,
+        int currentVersion,
+        Func<string, T?> deserialize,
+        Func<T, int> getVersion,
+        Func<T?, T> normalize,
+        Func<int, T> createUnparseableFallback,
+        out bool hasUnparseableFutureSchema)
+        where T : class
+    {
+        hasUnparseableFutureSchema = false;
+        try
+        {
+            T? rawParsed = deserialize(json);
+            if (rawParsed is not null)
+            {
+                int parsedVer = getVersion(rawParsed);
+                if (parsedVer > currentVersion)
+                {
+                    PreserveFutureSchemaCopyIfMissing(storePath, json, parsedVer);
+                }
+            }
+
+            return normalize(rawParsed);
+        }
+        catch (System.Text.Json.JsonException) when (
+            TryReadSchemaVersion(json, out int rawVer) && rawVer > currentVersion)
+        {
+            PreserveFutureSchemaCopyIfMissing(storePath, json, rawVer);
+            hasUnparseableFutureSchema = true;
+            return createUnparseableFallback(rawVer);
+        }
+    }
 
     public static async Task<T> LoadAsync<T>(
         string storePath,
@@ -41,7 +180,21 @@ internal static class ResilientJsonStore
         return result.Value;
     }
 
-    public static async Task<ResilientJsonLoadResult<T>> LoadWithResultAsync<T>(
+    public static async Task<T> LoadUtf8Async<T>(
+        string storePath,
+        Func<ReadOnlyMemory<byte>, T> deserializeUtf8,
+        Func<T> createDefault,
+        string logName)
+    {
+        ResilientJsonLoadResult<T> result = await LoadUtf8WithResultAsync(
+            storePath,
+            deserializeUtf8,
+            createDefault,
+            logName);
+        return result.Value;
+    }
+
+    public static Task<ResilientJsonLoadResult<T>> LoadWithResultAsync<T>(
         string storePath,
         Func<string, T> deserialize,
         Func<T> createDefault,
@@ -51,20 +204,76 @@ internal static class ResilientJsonStore
         ArgumentNullException.ThrowIfNull(deserialize);
         ArgumentNullException.ThrowIfNull(createDefault);
 
+        return LoadCoreWithResultAsync(
+            storePath,
+            ReadAllTextSharedWithRetryAsync,
+            deserialize,
+            RestorePrimaryAsync,
+            createDefault,
+            logName);
+    }
+
+    public static Task<ResilientJsonLoadResult<T>> LoadUtf8WithResultAsync<T>(
+        string storePath,
+        Func<ReadOnlyMemory<byte>, T> deserializeUtf8,
+        Func<T> createDefault,
+        string logName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(storePath);
+        ArgumentNullException.ThrowIfNull(deserializeUtf8);
+        ArgumentNullException.ThrowIfNull(createDefault);
+
+        return LoadCoreWithResultAsync<T, byte[]>(
+            storePath,
+            ReadAllBytesSharedWithRetryAsync,
+            bytes => deserializeUtf8(StripUtf8Bom(bytes)),
+            static (path, bytes) => RestorePrimaryBytesAsync(path, bytes),
+            createDefault,
+            logName);
+    }
+
+    private static ReadOnlyMemory<byte> StripUtf8Bom(byte[] bytes) =>
+        bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF
+            ? bytes.AsMemory(3)
+            : bytes;
+
+    private static async Task<ResilientJsonLoadResult<T>> LoadCoreWithResultAsync<T, TPayload>(
+        string storePath,
+        Func<string, Task<TPayload>> readPayloadAsync,
+        Func<TPayload, T> deserialize,
+        Func<string, TPayload, Task> restorePrimaryAsync,
+        Func<T> createDefault,
+        string logName)
+    {
         bool primaryFailed = false;
+        bool primaryUnreadable = false;
         if (File.Exists(storePath))
         {
             try
             {
                 return new ResilientJsonLoadResult<T>(
-                    deserialize(await File.ReadAllTextAsync(storePath)),
+                    deserialize(await readPayloadAsync(storePath)),
                     ResilientJsonLoadSource.Primary);
             }
             catch (Exception ex)
             {
                 primaryFailed = true;
-                App.Log($"[{logName}] Primary store is invalid: {ex}");
-                QuarantineCorruptFile(storePath, logName);
+                if (ex is IOException or UnauthorizedAccessException)
+                {
+                    // An external handle (antivirus/indexer/sync scan) or an
+                    // ACL denial fails the read without corrupting the bytes.
+                    // Quarantining here would rotate a perfectly good primary
+                    // to .corrupt-* and silently fall the store back to an
+                    // older .bak; keep the primary so the next load converges
+                    // on it once the handle is gone.
+                    primaryUnreadable = true;
+                    App.Log($"[{logName}] Primary store could not be read: {ex}");
+                }
+                else
+                {
+                    App.Log($"[{logName}] Primary store is invalid: {ex}");
+                    QuarantineCorruptFile(storePath, logName);
+                }
             }
         }
 
@@ -81,31 +290,53 @@ internal static class ResilientJsonStore
         T recovered;
         try
         {
-            string backupJson = await File.ReadAllTextAsync(backupPath);
-            recovered = deserialize(backupJson);
+            TPayload backupPayload = await readPayloadAsync(backupPath);
+            recovered = deserialize(backupPayload);
 
-            try
+            if (primaryUnreadable)
             {
-                await RestorePrimaryAsync(storePath, backupJson);
-                App.Log($"[{logName}] Restored store from '{backupPath}'.");
-            }
-            catch (Exception restoreException)
-            {
-                // A read-only or temporarily locked data directory must not
-                // turn a valid backup into an apparent total settings loss.
+                // The primary never proved corrupt — restoring the older
+                // backup bytes over it would be a silent rollback of newer
+                // committed state once the transient handle goes away.
                 App.Log(
-                    $"[{logName}] Backup loaded, but primary restore failed: " +
-                    restoreException);
+                    $"[{logName}] Backup loaded; primary kept for the next " +
+                    $"read after its transient read failure.");
+            }
+            else
+            {
+                try
+                {
+                    await restorePrimaryAsync(storePath, backupPayload);
+                    App.Log($"[{logName}] Restored store from '{backupPath}'.");
+                }
+                catch (Exception restoreException)
+                {
+                    // A read-only or temporarily locked data directory must not
+                    // turn a valid backup into an apparent total settings loss.
+                    App.Log(
+                        $"[{logName}] Backup loaded, but primary restore failed: " +
+                        restoreException);
+                }
             }
         }
         catch (Exception ex)
         {
-            App.Log($"[{logName}] Backup store is invalid: {ex}");
-            // Quarantine symmetric to the primary path: a corrupt .bak left
-            // in place keeps "backup exists" probes true forever while every
-            // load still fails — callers checking File.Exists(backup) would
-            // deadlock on a recovery source that can never succeed.
-            QuarantineCorruptFile(backupPath, logName);
+            if (ex is IOException or UnauthorizedAccessException)
+            {
+                // Symmetric to the primary path: an unreadable backup keeps
+                // its bytes for the next load.
+                App.Log($"[{logName}] Backup store could not be read: {ex}");
+            }
+            else
+            {
+                App.Log($"[{logName}] Backup store is invalid: {ex}");
+                // Quarantine symmetric to the primary path: a corrupt .bak left
+                // in place keeps "backup exists" probes true forever while every
+                // load still fails — callers checking File.Exists(backup) would
+                // deadlock on a recovery source that can never succeed.
+                QuarantineCorruptFile(backupPath, logName);
+            }
+
             return new ResilientJsonLoadResult<T>(
                 createDefault(),
                 ResilientJsonLoadSource.DefaultAfterFailure);
@@ -114,6 +345,80 @@ internal static class ResilientJsonStore
         return new ResilientJsonLoadResult<T>(
             recovered,
             ResilientJsonLoadSource.Backup);
+    }
+
+    private static async Task<string> ReadAllTextSharedWithRetryAsync(string path)
+    {
+        for (int retryIndex = 0; ; retryIndex++)
+        {
+            try
+            {
+                await using var stream = new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    bufferSize: 4096,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+                using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                return await reader.ReadToEndAsync();
+            }
+            catch (IOException ex) when (IsTransientReplaceConflict(ex) && retryIndex < s_readRetryDelays.Length)
+            {
+                await Task.Delay(s_readRetryDelays[retryIndex]);
+            }
+        }
+    }
+
+    private static async Task<byte[]> ReadAllBytesSharedWithRetryAsync(string path)
+    {
+        for (int retryIndex = 0; ; retryIndex++)
+        {
+            try
+            {
+                await using var stream = new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    bufferSize: 4096,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+                long length = stream.Length;
+                if (length == 0)
+                {
+                    return [];
+                }
+
+                if (length > int.MaxValue)
+                {
+                    throw new IOException($"Store file '{path}' exceeds maximum supported byte length.");
+                }
+
+                byte[] bytes = GC.AllocateUninitializedArray<byte>((int)length);
+                int offset = 0;
+                while (offset < bytes.Length)
+                {
+                    int read = await stream.ReadAsync(bytes.AsMemory(offset, bytes.Length - offset));
+                    if (read == 0)
+                    {
+                        if (offset == bytes.Length)
+                        {
+                            break;
+                        }
+
+                        return bytes.AsSpan(0, offset).ToArray();
+                    }
+
+                    offset += read;
+                }
+
+                return bytes;
+            }
+            catch (IOException ex) when (IsTransientReplaceConflict(ex) && retryIndex < s_readRetryDelays.Length)
+            {
+                await Task.Delay(s_readRetryDelays[retryIndex]);
+            }
+        }
     }
 
     public static Task SaveAsync(string storePath, string json)
@@ -223,18 +528,41 @@ internal static class ResilientJsonStore
             {
                 await File.WriteAllBytesAsync(tempPath, utf8Json);
             }
-            if (File.Exists(storePath))
+
+            // The existence probe routes the commit: replace when a primary
+            // exists, plain move for the first save. A racing writer can
+            // flip the answer between the probe and the move, so a failed
+            // initial move loops back through the probe (attempt 2 then
+            // sees the racing writer's primary and replaces it).
+            for (int commitAttempt = 0; ; commitAttempt++)
             {
-                await ReplaceOrFallbackAsync(
-                    tempPath,
-                    storePath,
-                    GetBackupPath(storePath),
-                    replaceFile,
-                    delayAsync);
-            }
-            else
-            {
-                File.Move(tempPath, storePath);
+                if (File.Exists(storePath))
+                {
+                    await ReplaceOrFallbackAsync(
+                        tempPath,
+                        storePath,
+                        GetBackupPath(storePath),
+                        replaceFile,
+                        delayAsync);
+                    return;
+                }
+
+                try
+                {
+                    File.Move(tempPath, storePath);
+                    return;
+                }
+                catch (IOException ex) when (commitAttempt < s_replaceRetryDelays.Length)
+                {
+                    // Initial-move failures at this point are races or
+                    // transient locks (the temp write already succeeded, so
+                    // media-level errors have already surfaced there).
+                    App.Log(
+                        $"[ResilientJsonStore] Initial move hit a transient " +
+                        $"conflict; retrying commit. HResult=0x{ex.HResult:X8}, " +
+                        $"File='{Path.GetFileName(storePath)}'.");
+                    await delayAsync(s_replaceRetryDelays[commitAttempt]);
+                }
             }
         }
         finally
@@ -261,24 +589,27 @@ internal static class ResilientJsonStore
                     true);
                 return;
             }
-            catch (IOException ex) when (IsUnableToRemoveReplacedFile(ex))
+            catch (IOException ex) when (IsTransientReplaceConflict(ex))
             {
                 if (retryIndex < s_replaceRetryDelays.Length)
                 {
                     TimeSpan delay = s_replaceRetryDelays[retryIndex];
                     App.Log(
-                        $"[ResilientJsonStore] Atomic replace could not remove the " +
-                        $"destination; retrying in {delay.TotalMilliseconds:0} ms. " +
+                        $"[ResilientJsonStore] Atomic replace hit a transient " +
+                        $"conflict; retrying in {delay.TotalMilliseconds:0} ms. " +
                         $"HResult=0x{ex.HResult:X8}, " +
                         $"File='{Path.GetFileName(storePath)}'.");
                     await delayAsync(delay);
                     continue;
                 }
 
-                // ERROR_UNABLE_TO_REMOVE_REPLACED documents that both source and
-                // destination retain their original names. Guard that invariant
-                // before using the non-atomic path so other partial replace errors
-                // are never treated as safe fallbacks.
+                // The in-place fallback is only safe when the failed replace
+                // left BOTH files under their original names. For
+                // ERROR_UNABLE_TO_REMOVE_REPLACED that is documented; for a
+                // sharing violation it is not (the replace can stop in any
+                // intermediate rename step), so this existence probe is the
+                // only guard standing between a partial replace and the
+                // non-atomic path — it must fail closed.
                 if (!File.Exists(tempPath) || !File.Exists(storePath))
                 {
                     throw;
@@ -321,6 +652,10 @@ internal static class ResilientJsonStore
 
     private static bool IsUnableToRemoveReplacedFile(IOException exception) =>
         exception.HResult == UnableToRemoveReplacedFileHResult;
+
+    private static bool IsTransientReplaceConflict(IOException exception) =>
+        exception.HResult == UnableToRemoveReplacedFileHResult ||
+        exception.HResult == SharingViolationHResult;
 
     private static async Task SaveInPlaceWithVerifiedBackupAsync(
         string storePath,
@@ -369,7 +704,7 @@ internal static class ResilientJsonStore
 
     private static void QuarantineCorruptFile(string storePath, string logName)
     {
-        string corruptPath = $"{storePath}.corrupt-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+        string corruptPath = FormattableString.Invariant($"{storePath}.corrupt-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}");
         try
         {
             File.Move(storePath, corruptPath);
@@ -417,13 +752,16 @@ internal static class ResilientJsonStore
         }
     }
 
-    private static async Task RestorePrimaryAsync(string storePath, string json)
+    private static Task RestorePrimaryAsync(string storePath, string json) =>
+        RestorePrimaryBytesAsync(storePath, System.Text.Encoding.UTF8.GetBytes(json));
+
+    private static async Task RestorePrimaryBytesAsync(string storePath, ReadOnlyMemory<byte> utf8Bytes)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(storePath)!);
         string tempPath = $"{storePath}.{Guid.NewGuid():N}.recovery.tmp";
         try
         {
-            await File.WriteAllTextAsync(tempPath, json);
+            await File.WriteAllBytesAsync(tempPath, utf8Bytes);
             File.Move(tempPath, storePath, overwrite: true);
         }
         finally

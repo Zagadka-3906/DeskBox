@@ -1,10 +1,10 @@
 # DeskBox 宿舍用电扩展版
 
-> **非官方发行版。** 本分支基于 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox) 1.5.9，由 [Zagadka-3906](https://github.com/Zagadka-3906) 维护，增加深圳大学宿舍用电格子。此扩展版并非原作者发布或维护。
+> **非官方发行版。** 本分支基于 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox) 1.6.0，由 [Zagadka-3906](https://github.com/Zagadka-3906) 维护，增加深圳大学宿舍用电格子。此扩展版并非原作者发布或维护。
 
-[下载 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.9-dorm.1/DeskBox_DormElectricity_1.5.9_dorm.1_x64.exe) · [查看发行说明](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.5.9-dorm.1) · [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.5.9-dorm.1/DeskBox_DormElectricity_1.5.9_dorm.1_x64.exe.sha256)
+[下载 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.6.0-dorm.1/DeskBox_DormElectricity_1.6.0_dorm.1_x64.exe) · [查看发行说明](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.6.0-dorm.1) · [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.6.0-dorm.1/DeskBox_DormElectricity_1.6.0_dorm.1_x64.exe.sha256)
 
-本版已合并官方 1.5.9 的多显示器布局、格子外观、原生右键菜单、更新体验和稳定性改进，详见[官方发行说明](https://github.com/Tianyu199509/DeskBox/releases/tag/v1.5.9)。
+本版已合并 [DeskBox 官方 1.6.0](https://github.com/Tianyu199509/DeskBox/releases/tag/v1.6.0)。学校缺少中间抄表记录时，格子显示可计算的跨日合计，并标出无法计算单日用电的日期。
 
 ## 宿舍用电格子
 

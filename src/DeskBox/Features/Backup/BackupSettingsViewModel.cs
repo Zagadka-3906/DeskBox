@@ -33,6 +33,9 @@ public sealed partial class BackupSettingsViewModel : ObservableObject, IDisposa
     // disposed immediately: disposing a source a pending read still uses
     // throws ObjectDisposedException from token members such as WaitHandle.
     private Task _readDrain = Task.CompletedTask;
+
+    /// <summary>Awaits every queued background read/update (tests, batch R11).</summary>
+    internal Task PendingReads => _readDrain;
     private int _visitGeneration;
     private int _endpointGeneration;
     private int _commandGeneration;
@@ -170,11 +173,42 @@ public sealed partial class BackupSettingsViewModel : ObservableObject, IDisposa
         InvalidateEndpoint(recheckCredential);
     }
 
+    // Batch R11: the write+read-back pair is two pipe roundtrips. On the
+    // host UI thread (every backup toggle/combo/text binding setter lands
+    // here) that is the modal-loop wedge family — both calls now run on a
+    // serialized background drain: writes leave in the order the user made
+    // them, and the authoritative re-read hops back to the UI thread
+    // through the injected enqueuer.
+    private readonly SemaphoreSlim _updateDrain = new(1, 1);
+
     public void Update(BackupSettingsChange change)
     {
         if (_disposed) return;
-        _settings.Update(change);
-        RefreshState();
+        TrackRead(Task.Run(async () =>
+        {
+            await _updateDrain.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await _settings.UpdateAsync(change).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _reportError(ex);
+                return;
+            }
+            finally
+            {
+                _updateDrain.Release();
+            }
+
+            _tryEnqueue(() =>
+            {
+                if (!_disposed)
+                {
+                    RefreshState();
+                }
+            });
+        }));
     }
 
     public bool IsValidLocalDirectory(string path, out string? reason) =>
@@ -219,6 +253,11 @@ public sealed partial class BackupSettingsViewModel : ObservableObject, IDisposa
         return read;
     }
 
+    private static bool HasReachableEndpoint(BackupSettingsSnapshot state) =>
+        state.HasEndpoint ||
+        (Uri.TryCreate(state.CloudServerUrl, UriKind.Absolute, out Uri? uri) &&
+         (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp));
+
     private async Task RefreshCredentialCoreAsync(bool listAfter)
     {
         if (!IsActive) return;
@@ -228,7 +267,7 @@ public sealed partial class BackupSettingsViewModel : ObservableObject, IDisposa
         CancellationToken token = EndpointToken;
         try
         {
-            bool saved = State.HasEndpoint && await _settings.HasCredentialAsync(endpoint, token);
+            bool saved = HasReachableEndpoint(State) && await _settings.HasCredentialAsync(endpoint, token);
             if (!IsCurrent(visit, endpointGeneration, token)) return;
             CredentialSaved = saved;
             if (saved && listAfter) await RefreshSnapshotsCoreAsync(checkCredential: false);
@@ -332,7 +371,7 @@ public sealed partial class BackupSettingsViewModel : ObservableObject, IDisposa
         CancellationToken token = EndpointToken;
         try
         {
-            if (!State.HasEndpoint) return null;
+            if (!HasReachableEndpoint(State)) return null;
             if (checkCredential)
             {
                 bool saved = await _settings.HasCredentialAsync(endpoint, token);

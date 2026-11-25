@@ -12,14 +12,140 @@ namespace DeskBox.ViewModels;
 
 public partial class WidgetViewModel
 {
+    internal readonly record struct FolderSortStateSnapshot(
+        bool IsSubfolder,
+        string SubfolderScopeKey,
+        bool HadSubfolderOverride,
+        WidgetFolderSortOverride PreviousSubfolderOverride,
+        WidgetSortMode PreviousRootSortMode,
+        bool PreviousRootSortDescending);
+
+    public WidgetSortMode EffectiveSortMode => ResolveEffectiveFolderSortState().SortMode;
+
+    public bool EffectiveSortDescending => ResolveEffectiveFolderSortState().SortDescending;
+
+    private (WidgetSortMode SortMode, bool SortDescending) ResolveEffectiveFolderSortState()
+    {
+        if (!TryGetCurrentSubfolderScopeKey(out string scopeKey))
+        {
+            return (Config.SortMode, Config.SortDescending);
+        }
+
+        if (_subfolderSortOverrides.TryGetValue(scopeKey, out WidgetFolderSortOverride overrideState))
+        {
+            return (overrideState.SortMode, overrideState.SortDescending);
+        }
+
+        if ((_subfolderManualItemOrders.TryGetValue(scopeKey, out List<string>? manualPaths) &&
+             manualPaths.Count > 0) ||
+            (_subfolderDisplayOrders.TryGetValue(scopeKey, out List<string>? displayOrder) &&
+             displayOrder.Any(key => key.StartsWith(LooseItemOrderKeyPrefix, StringComparison.Ordinal))))
+        {
+            return (WidgetSortMode.Manual, false);
+        }
+
+        if (Config.SortMode != WidgetSortMode.Manual)
+        {
+            return (Config.SortMode, Config.SortDescending);
+        }
+
+        return (WidgetSortMode.Name, false);
+    }
+
+    internal bool TryGetCurrentSubfolderScopeKey(out string scopeKey)
+    {
+        if (IsAtMappedRoot || string.IsNullOrWhiteSpace(CurrentFolderPath))
+        {
+            scopeKey = string.Empty;
+            return false;
+        }
+
+        scopeKey = WidgetFileStackSettings.NormalizeFolderScopeKey(CurrentFolderPath);
+        return !string.IsNullOrWhiteSpace(scopeKey);
+    }
+
+    internal FolderSortStateSnapshot CaptureCurrentFolderSortStateAndActivateManual()
+    {
+        if (TryGetCurrentSubfolderScopeKey(out string scopeKey))
+        {
+            bool hadOverride = _subfolderSortOverrides.TryGetValue(
+                scopeKey,
+                out WidgetFolderSortOverride previousOverride);
+            var snapshot = new FolderSortStateSnapshot(
+                IsSubfolder: true,
+                SubfolderScopeKey: scopeKey,
+                HadSubfolderOverride: hadOverride,
+                PreviousSubfolderOverride: previousOverride,
+                PreviousRootSortMode: Config.SortMode,
+                PreviousRootSortDescending: Config.SortDescending);
+            _subfolderSortOverrides[scopeKey] = new WidgetFolderSortOverride(
+                WidgetSortMode.Manual,
+                false);
+            WidgetFileStackSettings.SetSubfolderSortOverrides(Config, _subfolderSortOverrides);
+            NormalizeSortOrder();
+            NotifyFolderSortPropertiesChanged();
+            return snapshot;
+        }
+
+        var rootSnapshot = new FolderSortStateSnapshot(
+            IsSubfolder: false,
+            SubfolderScopeKey: string.Empty,
+            HadSubfolderOverride: false,
+            PreviousSubfolderOverride: default,
+            PreviousRootSortMode: Config.SortMode,
+            PreviousRootSortDescending: Config.SortDescending);
+        Config.SortMode = WidgetSortMode.Manual;
+        Config.SortDescending = false;
+        NormalizeSortOrder();
+        NotifyFolderSortPropertiesChanged();
+        return rootSnapshot;
+    }
+
+    internal void RestoreCurrentFolderSortState(FolderSortStateSnapshot snapshot)
+    {
+        if (snapshot.IsSubfolder)
+        {
+            if (snapshot.HadSubfolderOverride)
+            {
+                _subfolderSortOverrides[snapshot.SubfolderScopeKey] = snapshot.PreviousSubfolderOverride;
+            }
+            else
+            {
+                _subfolderSortOverrides.Remove(snapshot.SubfolderScopeKey);
+            }
+
+            WidgetFileStackSettings.SetSubfolderSortOverrides(Config, _subfolderSortOverrides);
+        }
+        else
+        {
+            Config.SortMode = snapshot.PreviousRootSortMode;
+            Config.SortDescending = snapshot.PreviousRootSortDescending;
+        }
+
+        SortItems();
+        NotifyFolderSortPropertiesChanged();
+    }
+
+    private void NotifyFolderSortPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(EffectiveSortMode));
+        OnPropertyChanged(nameof(EffectiveSortDescending));
+        OnPropertyChanged(nameof(SortModeLabel));
+    }
+
     public void SetSortMode(WidgetSortMode mode)
     {
-        if (Config.SortMode == mode)
+        using var _ = BeginInlineLayoutUndoScope();
+        (WidgetSortMode currentMode, bool currentDescending) = ResolveEffectiveFolderSortState();
+        WidgetSortMode nextMode;
+        bool nextDescending;
+        if (currentMode == mode)
         {
             // Toggle direction only for auto sort modes (not Manual).
             if (mode != WidgetSortMode.Manual)
             {
-                Config.SortDescending = !Config.SortDescending;
+                nextMode = mode;
+                nextDescending = !currentDescending;
             }
             else
             {
@@ -29,81 +155,108 @@ public partial class WidgetViewModel
         }
         else
         {
-            Config.SortMode = mode;
-            Config.SortDescending = false;
+            nextMode = mode;
+            nextDescending = false;
         }
 
-        // Manual mode: keep current order, just persist the mode.
-        if (mode == WidgetSortMode.Manual)
+        bool isSubfolder = TryGetCurrentSubfolderScopeKey(out string subfolderScopeKey);
+        if (isSubfolder)
         {
+            _subfolderSortOverrides[subfolderScopeKey] =
+                new WidgetFolderSortOverride(nextMode, nextDescending);
+            WidgetFileStackSettings.SetSubfolderSortOverrides(Config, _subfolderSortOverrides);
+        }
+        else
+        {
+            Config.SortMode = nextMode;
+            Config.SortDescending = nextDescending;
+        }
+
+        // Manual mode: keep current folder's order, just persist the mode and snapshot.
+        if (nextMode == WidgetSortMode.Manual)
+        {
+            if (UsesStackProjection && _hasBuiltStackDisplay)
+            {
+                SynchronizeItemsOrderFromStackProjection();
+            }
             NormalizeSortOrder();
-            SyncConfigItemsOrder();
+            SyncCurrentFolderManualItemsOrder();
             _settingsService.UpdateWidget(Config, notifySubscribers: false);
-            OnPropertyChanged(nameof(SortModeLabel));
+            NotifyFolderSortPropertiesChanged();
             return;
         }
 
+        if (isSubfolder)
+        {
+            if (_subfolderManualItemOrders.Remove(subfolderScopeKey))
+            {
+                WidgetFileStackSettings.SetSubfolderManualItemOrders(
+                    Config,
+                    _subfolderManualItemOrders);
+            }
+
+            if (_subfolderDisplayOrders.TryGetValue(subfolderScopeKey, out List<string>? subOrder) &&
+                subOrder.RemoveAll(key =>
+                    key.StartsWith(LooseItemOrderKeyPrefix, StringComparison.Ordinal)) > 0)
+            {
+                if (subOrder.Count == 0)
+                {
+                    _subfolderDisplayOrders.Remove(subfolderScopeKey);
+                }
+
+                WidgetFileStackSettings.SetSubfolderDisplayOrders(
+                    Config,
+                    _subfolderDisplayOrders);
+            }
+        }
+        else
+        {
+            if (Config.Items.Count > 0)
+            {
+                Config.Items.Clear();
+            }
+
+            if (_stackOrder.RemoveAll(key =>
+                    key.StartsWith(LooseItemOrderKeyPrefix, StringComparison.Ordinal)) > 0)
+            {
+                WidgetFileStackSettings.SetStackOrder(
+                    Config,
+                    _stackOrder.Count == 0 ? null : _stackOrder);
+            }
+        }
+
         var sorted = Items.OrderBy(item => item, Comparer<WidgetItem>.Create(CompareItems)).ToList();
-        Items.Clear();
-        foreach (var item in sorted)
+        using (DeferStackDisplayRebuild())
         {
-            Items.Add(item);
+            Items.Clear();
+            foreach (var item in sorted)
+            {
+                Items.Add(item);
+            }
+            NormalizeSortOrder();
         }
-        NormalizeSortOrder();
         _settingsService.UpdateWidget(Config, notifySubscribers: false);
-        OnPropertyChanged(nameof(SortModeLabel));
+        NotifyFolderSortPropertiesChanged();
     }
 
     /// <summary>
-    /// Moves an item to a new position without persisting to config.
-    /// Used for real-time reordering during drag-over for visual feedback.
-    /// Switches to Manual mode if needed.  Call PersistManualOrder on drop.
-    /// </summary>
-    public bool MoveItemForReorder(WidgetItem item, int targetIndex)
-    {
-        if (Config.SortMode != WidgetSortMode.Manual)
-        {
-            return false;
-        }
-
-        int currentIndex = Items.IndexOf(item);
-        if (currentIndex < 0)
-        {
-            return false;
-        }
-
-        targetIndex = Math.Clamp(targetIndex, 0, Items.Count - 1);
-        if (currentIndex == targetIndex)
-        {
-            return false;
-        }
-
-        Items.Move(currentIndex, targetIndex);
-        return true;
-    }
-
-    /// <summary>
-    /// Block-aware multi-selection variant of <see cref="MoveItemForReorder"/>.
-    /// The dragged items keep their relative order and land as one contiguous
-    /// block. The block is applied through sequential collection moves rather
-    /// than a remove/insert rebuild, which preserves the ListView selection
-    /// across the reorder.
+    /// Applies a reorder drop on the flat (non-stack-projection) item list.
+    /// Single items and multi-selections share one landing primitive: the
+    /// computed insertion index already carries the moving-before-target
+    /// compensation, so both shapes land exactly on the insertion line. The
+    /// rebuild drops the ListView selection; the surface restores it by path
+    /// (ScheduleSurfaceReorderSelectionRestore), mirroring the projection
+    /// path. Call PersistManualOrder on drop.
     /// </summary>
     public bool MoveItemsForReorder(
         IReadOnlyList<WidgetItem> draggedItems,
         int targetIndex)
     {
-        if (Config.SortMode != WidgetSortMode.Manual ||
+        using var _ = BeginInlineLayoutUndoScope();
+        if (EffectiveSortMode != WidgetSortMode.Manual ||
             draggedItems.Count == 0)
         {
             return false;
-        }
-
-        if (draggedItems.Count == 1)
-        {
-            return MoveItemForReorder(
-                draggedItems[0],
-                targetIndex);
         }
 
         if (!TryComputeItemBlockReorder(
@@ -115,23 +268,43 @@ public partial class WidgetViewModel
             return false;
         }
 
+        ApplyItemBlockReorder(Items, draggedItems, insertionIndex);
+        return true;
+    }
+
+    // Lands the dragged block at the post-removal insertion index through
+    // one remove+insert rebuild. Sequential Items.Move calls cannot express
+    // a block landing — removing a not-yet-placed dragged item shifts the
+    // members already placed, so downward drops scattered (single items one
+    // slot past the insertion line, multi-selections broke apart; regression
+    // window 1.5.8-1.5.9, 9e414687 removed the single-item compensation).
+    // The flat-path twin of the display-unit rebuild in Stacks.cs.
+    internal static void ApplyItemBlockReorder(
+        ObservableCollection<WidgetItem> items,
+        IReadOnlyList<WidgetItem> draggedItems,
+        int insertionIndex)
+    {
         HashSet<WidgetItem> draggedSet = new(
             draggedItems,
             ReferenceEqualityComparer.Instance);
-        foreach (WidgetItem item in Items
-                     .Where(draggedSet.Contains)
-                     .ToList())
+        List<WidgetItem> block = items
+            .Where(draggedSet.Contains)
+            .ToList();
+        foreach (WidgetItem item in block)
         {
-            int currentIndex = IndexOfReference(Items, item, 0);
-            if (currentIndex >= 0 && currentIndex != insertionIndex)
+            int currentIndex = IndexOfReference(items, item, 0);
+            if (currentIndex >= 0)
             {
-                Items.Move(currentIndex, insertionIndex);
+                items.RemoveAt(currentIndex);
             }
-
-            insertionIndex++;
         }
 
-        return true;
+        for (int offset = 0; offset < block.Count; offset++)
+        {
+            items.Insert(
+                Math.Clamp(insertionIndex + offset, 0, items.Count),
+                block[offset]);
+        }
     }
 
     // Computes where a contiguous block move lands: the insertion index
@@ -187,14 +360,130 @@ public partial class WidgetViewModel
     /// </summary>
     public void PersistManualOrder()
     {
-        if (Config.SortMode != WidgetSortMode.Manual || !IsAtMappedRoot)
+        if (EffectiveSortMode != WidgetSortMode.Manual)
         {
             return;
         }
 
+        if (UsesStackProjection && _hasBuiltStackDisplay)
+        {
+            SynchronizeItemsOrderFromStackProjection();
+        }
+        else
+        {
+            SyncFlatReorderWithDormantStackDisplayOrder();
+        }
         NormalizeSortOrder();
-        SyncConfigItemsOrder();
+        SyncCurrentFolderManualItemsOrder();
         _settingsService.UpdateWidget(Config, notifySubscribers: false);
+    }
+
+    private bool SyncCurrentFolderManualItemsOrder()
+    {
+        if (TryGetCurrentSubfolderScopeKey(out string scopeKey))
+        {
+            return SyncSubfolderManualItemsOrder(scopeKey);
+        }
+
+        return SyncConfigItemsOrder();
+    }
+
+    private bool SyncSubfolderManualItemsOrder(string scopeKey)
+    {
+        List<string> desiredPaths = Items
+            .Where(item => !string.IsNullOrWhiteSpace(item.Path))
+            .Select(item => Path.GetFullPath(item.Path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (desiredPaths.Count == 0)
+        {
+            if (!_subfolderManualItemOrders.Remove(scopeKey))
+            {
+                return false;
+            }
+
+            WidgetFileStackSettings.SetSubfolderManualItemOrders(
+                Config,
+                _subfolderManualItemOrders);
+            return true;
+        }
+
+        if (_subfolderManualItemOrders.TryGetValue(scopeKey, out List<string>? existing) &&
+            existing.SequenceEqual(desiredPaths, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        _subfolderManualItemOrders[scopeKey] = desiredPaths;
+        WidgetFileStackSettings.SetSubfolderManualItemOrders(
+            Config,
+            _subfolderManualItemOrders);
+        return true;
+    }
+
+    private IReadOnlyList<WidgetItemConfig> GetPersistedManualOrderItemsForCurrentFolder()
+    {
+        if (!TryGetCurrentSubfolderScopeKey(out string scopeKey))
+        {
+            return Config.Items;
+        }
+
+        if (_subfolderManualItemOrders.TryGetValue(scopeKey, out List<string>? savedPaths) &&
+            savedPaths.Count > 0)
+        {
+            return savedPaths
+                .Select((path, index) => new WidgetItemConfig
+                {
+                    Path = path,
+                    SortOrder = index
+                })
+                .ToList();
+        }
+
+        if (_subfolderDisplayOrders.TryGetValue(scopeKey, out List<string>? unitKeys) &&
+            unitKeys.Count > 0)
+        {
+            var expanded = new List<WidgetItemConfig>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string key in unitKeys)
+            {
+                if (key.StartsWith(LooseItemOrderKeyPrefix, StringComparison.Ordinal))
+                {
+                    string loosePath = key[LooseItemOrderKeyPrefix.Length..];
+                    if (!string.IsNullOrWhiteSpace(loosePath) && seen.Add(loosePath))
+                    {
+                        expanded.Add(new WidgetItemConfig
+                        {
+                            Path = loosePath,
+                            SortOrder = expanded.Count
+                        });
+                    }
+
+                    continue;
+                }
+
+                if (key.StartsWith(ManualStackKeyPrefix, StringComparison.Ordinal) &&
+                    _stackMemberOverrides.TryGetValue(key, out List<string>? members))
+                {
+                    foreach (string memberPath in members)
+                    {
+                        if (!string.IsNullOrWhiteSpace(memberPath) && seen.Add(memberPath))
+                        {
+                            expanded.Add(new WidgetItemConfig
+                            {
+                                Path = memberPath,
+                                SortOrder = expanded.Count
+                            });
+                        }
+                    }
+                }
+            }
+
+            return expanded;
+        }
+
+        return [];
     }
 
     /// <summary>
@@ -245,13 +534,13 @@ public partial class WidgetViewModel
 
     private void PersistManualOrderSnapshotIfChanged()
     {
-        if (Config.SortMode == WidgetSortMode.Manual && SyncConfigItemsOrder())
+        if (EffectiveSortMode == WidgetSortMode.Manual && SyncCurrentFolderManualItemsOrder())
         {
             _settingsService.UpdateWidget(Config, notifySubscribers: false);
         }
     }
 
-    public string SortModeLabel => Config.SortMode switch
+    public string SortModeLabel => EffectiveSortMode switch
     {
         WidgetSortMode.Size => _localizationService.T("Widget.Sort.Size"),
         WidgetSortMode.Type => _localizationService.T("Widget.Sort.Type"),
@@ -263,7 +552,7 @@ public partial class WidgetViewModel
     private void SortItems()
     {
         // Manual mode: never auto-sort; preserve user-defined order.
-        if (Config.SortMode == WidgetSortMode.Manual)
+        if (EffectiveSortMode == WidgetSortMode.Manual)
         {
             NormalizeSortOrder();
             return;
@@ -271,28 +560,60 @@ public partial class WidgetViewModel
 
         var sortedItems = Items.ToList();
         sortedItems.Sort(CompareItems);
-        for (int targetIndex = 0; targetIndex < sortedItems.Count; targetIndex++)
+        using (DeferStackDisplayRebuild())
         {
-            var item = sortedItems[targetIndex];
-            int currentIndex = Items.IndexOf(item);
-            if (currentIndex >= 0 && currentIndex != targetIndex)
+            for (int targetIndex = 0; targetIndex < sortedItems.Count; targetIndex++)
             {
-                Items.Move(currentIndex, targetIndex);
+                var item = sortedItems[targetIndex];
+                if (targetIndex < Items.Count && ReferenceEquals(Items[targetIndex], item))
+                {
+                    continue;
+                }
+
+                int currentIndex = Items.IndexOf(item);
+                if (currentIndex >= 0 && currentIndex != targetIndex)
+                {
+                    Items.Move(currentIndex, targetIndex);
+                }
             }
+
+            NormalizeSortOrder();
+        }
+    }
+
+    private FolderWatcherService EnsurePrimaryFolderWatcher()
+    {
+        if (_folderWatcher is null)
+        {
+            _folderWatcher = new FolderWatcherService(_dispatcherQueue!);
+            _folderWatcher.FolderChanged += OnFolderChanged;
+            _folderWatcher.FolderIconChanged += OnFolderIconChanged;
         }
 
-        NormalizeSortOrder();
+        return _folderWatcher;
+    }
+
+    private FolderWatcherService EnsurePublicFolderWatcher()
+    {
+        if (_publicFolderWatcher is null)
+        {
+            _publicFolderWatcher = new FolderWatcherService(_dispatcherQueue!);
+            _publicFolderWatcher.FolderChanged += OnFolderChanged;
+            _publicFolderWatcher.FolderIconChanged += OnFolderIconChanged;
+        }
+
+        return _publicFolderWatcher;
     }
 
     private async Task ConfigureFolderWatchersAsync(
         string? folderPath,
         CancellationToken cancellationToken = default)
     {
-        _folderWatcher.Stop();
-        _publicFolderWatcher.Stop();
+        _folderWatcher?.Stop();
+        _publicFolderWatcher?.Stop();
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (_isDisposed || string.IsNullOrEmpty(folderPath))
+        if (_isDisposed || string.IsNullOrEmpty(folderPath) || _dispatcherQueue is null)
         {
             return;
         }
@@ -311,23 +632,66 @@ public partial class WidgetViewModel
                 watcherPath = MappedFolderPath;
             }
 
-            await _folderWatcher.StartAsync(watcherPath).WaitAsync(cancellationToken);
+            await EnsurePrimaryFolderWatcher().StartAsync(watcherPath).WaitAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
             var (userDesktop, publicDesktop) = FileService.GetDesktopPaths();
             if (folderPath.Equals(userDesktop, StringComparison.OrdinalIgnoreCase))
             {
-                await _publicFolderWatcher.StartAsync(publicDesktop).WaitAsync(cancellationToken);
+                await EnsurePublicFolderWatcher().StartAsync(publicDesktop).WaitAsync(cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Stop bumps each watcher's generation, preventing a slow probe from
             // attaching after this content switch has already been superseded.
-            _folderWatcher.Stop();
-            _publicFolderWatcher.Stop();
+            _folderWatcher?.Stop();
+            _publicFolderWatcher?.Stop();
             throw;
         }
+    }
+
+    internal void SuspendFolderWatchers()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _folderWatcher?.Stop();
+        _publicFolderWatcher?.Stop();
+    }
+
+    internal async Task ResumeFolderWatchersIfStoppedAsync()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        string? activeFolder = CurrentFolderPath ?? MappedFolderPath;
+        if (!string.IsNullOrWhiteSpace(activeFolder) &&
+            Directory.Exists(activeFolder) &&
+            (_folderWatcher is null || string.IsNullOrWhiteSpace(_folderWatcher.WatchedPath)))
+        {
+            await ConfigureFolderWatchersAsync(activeFolder);
+        }
+    }
+
+    internal void SetDesktopOrganizationBusy(bool isBusy)
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        if (isBusy)
+        {
+            SuspendFolderWatchers();
+            return;
+        }
+
+        _ = ResumeFolderWatchersIfStoppedAsync();
     }
 
     private void OnFolderChanged(FolderChangeBatch changeBatch)
@@ -350,6 +714,7 @@ public partial class WidgetViewModel
 
         if (_surfaceActivity.TryDeferChange())
         {
+            ApplyDeferredRenameMetadata(changeBatch.Changes);
             return;
         }
 
@@ -370,6 +735,7 @@ public partial class WidgetViewModel
 
             if (_surfaceActivity.TryDeferChange())
             {
+                ApplyDeferredRenameMetadata(changeBatch.Changes);
                 return;
             }
 
@@ -540,14 +906,14 @@ public partial class WidgetViewModel
 
     private bool IsCurrentWatcherGeneration(FolderChangeBatch changeBatch)
     {
-        FolderWatcherService watcher =
+        FolderWatcherService? watcher =
             string.Equals(
                 changeBatch.WatchedPath,
                 CurrentFolderPath,
                 StringComparison.OrdinalIgnoreCase)
                 ? _folderWatcher
                 : _publicFolderWatcher;
-        return changeBatch.Generation == watcher.Generation;
+        return watcher is not null && changeBatch.Generation == watcher.Generation;
     }
 
     /// <summary>
@@ -603,7 +969,7 @@ public partial class WidgetViewModel
     {
         if (change.ChangeType == WatcherChangeTypes.Renamed && !string.IsNullOrWhiteSpace(change.OldFullPath))
         {
-            int previousManualIndex = Config.SortMode == WidgetSortMode.Manual
+            int previousManualIndex = EffectiveSortMode == WidgetSortMode.Manual
                 ? FindItemIndexByPath(change.OldFullPath)
                 : -1;
             FolderEntryRefreshStatus oldState =
@@ -615,6 +981,7 @@ public partial class WidgetViewModel
                 if (newState == FolderEntryRefreshStatus.Available)
                 {
                     TransferFileAddedAt(change.OldFullPath, change.FullPath);
+                    UpdateStackMemberOverridePath(change.OldFullPath, change.FullPath);
                 }
 
                 RemoveItemByPath(
@@ -648,6 +1015,22 @@ public partial class WidgetViewModel
         if (state == FolderEntryRefreshStatus.Available)
         {
             await UpsertFolderItemAsync(change.FullPath);
+        }
+    }
+
+    private void ApplyDeferredRenameMetadata(IReadOnlyList<FolderChange> changes)
+    {
+        foreach (FolderChange change in changes)
+        {
+            if (change.ChangeType != WatcherChangeTypes.Renamed ||
+                string.IsNullOrWhiteSpace(change.OldFullPath) ||
+                string.IsNullOrWhiteSpace(change.FullPath))
+            {
+                continue;
+            }
+
+            TransferFileAddedAt(change.OldFullPath, change.FullPath);
+            UpdateStackMemberOverridePath(change.OldFullPath, change.FullPath);
         }
     }
 
@@ -697,7 +1080,7 @@ public partial class WidgetViewModel
             resetTransientFailures: true);
 
         int existingIndex = FindItemIndexForManagedMutation(path);
-        if (Config.SortMode == WidgetSortMode.Manual && existingIndex >= 0)
+        if (EffectiveSortMode == WidgetSortMode.Manual && existingIndex >= 0)
         {
             AssignAddedAt(item);
             if (preferredManualIndex is { } requestedIndex)
@@ -740,7 +1123,7 @@ public partial class WidgetViewModel
 
         AssignAddedAt(item);
 
-        int insertIndex = Config.SortMode == WidgetSortMode.Manual && preferredManualIndex.HasValue
+        int insertIndex = EffectiveSortMode == WidgetSortMode.Manual && preferredManualIndex.HasValue
             ? Math.Clamp(preferredManualIndex.Value, 0, Items.Count)
             : GetSortedInsertIndex(item);
         item.SortOrder = insertIndex;
@@ -814,7 +1197,7 @@ public partial class WidgetViewModel
     private int GetSortedInsertIndex(WidgetItem candidate)
     {
         // Manual mode: always append to the end.
-        if (Config.SortMode == WidgetSortMode.Manual)
+        if (EffectiveSortMode == WidgetSortMode.Manual)
         {
             return Items.Count;
         }
@@ -1011,7 +1394,8 @@ public partial class WidgetViewModel
             return left.IsFolder ? -1 : 1;
         }
 
-        int result = Config.SortMode switch
+        (WidgetSortMode sortMode, bool sortDescending) = ResolveEffectiveFolderSortState();
+        int result = sortMode switch
         {
             WidgetSortMode.Size => left.FileSize.CompareTo(right.FileSize),
             WidgetSortMode.Type => string.Compare(
@@ -1033,6 +1417,6 @@ public partial class WidgetViewModel
             result = NaturalStringComparer.CurrentCultureIgnoreCase.Compare(left.Path, right.Path);
         }
 
-        return Config.SortDescending ? -result : result;
+        return sortDescending ? -result : result;
     }
 }

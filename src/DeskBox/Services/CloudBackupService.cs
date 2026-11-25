@@ -1,4 +1,4 @@
-using DeskBox.Models;
+﻿using DeskBox.Models;
 
 using DeskBox.Contracts;
 
@@ -323,9 +323,34 @@ internal sealed class CloudBackupService
                 cancellationToken);
 
             string remoteFilePath = $"{options.RemotePath}/{BuildRemoteSnapshotName()}";
-            await using (FileStream content = File.OpenRead(localArchivePath))
+            try
             {
-                await transport.UploadAsync(remoteFilePath, content, cancellationToken);
+                await using (FileStream content = File.OpenRead(localArchivePath))
+                {
+                    await transport.UploadAsync(remoteFilePath, content, cancellationToken);
+                }
+
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Deep review R15 (F7 audit): a canceled PUT leaves a partial
+                // file on the server that still sorts as the NEWEST snapshot
+                // (name embeds the timestamp) — the restore picker would
+                // offer it first and fail validation with no hint it was a
+                // half-transfer. Best-effort delete of the exact path; a
+                // failed delete only logs (the next successful upload
+                // supersedes it in sorting anyway).
+                try
+                {
+                    await transport.DeleteAsync(remoteFilePath, CancellationToken.None);
+                    App.Log($"[CloudBackup] Upload canceled; removed partial remote file '{remoteFilePath}'.");
+                }
+                catch (Exception cleanupEx)
+                {
+                    App.Log($"[CloudBackup] Upload canceled; partial remote file '{remoteFilePath}' could not be removed: {cleanupEx.Message}");
+                }
+
+                throw;
             }
 
             // UploadAsync returned successfully: the server accepted this
@@ -341,6 +366,12 @@ internal sealed class CloudBackupService
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 App.Log("[CloudBackup] Upload accepted; verification canceled, recording unverified success.");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                App.Log(
+                    $"[CloudBackup] Upload accepted; listing verification threw for '{remoteFilePath}': {ex.Message}");
+                uploadVerified = false;
             }
             if (!uploadVerified)
             {
@@ -645,7 +676,10 @@ internal sealed class CloudBackupService
     private static string BuildRemoteSnapshotName()
     {
         string deviceSuffix = DeviceIdentity.Id is { Length: >= 8 } id ? id[..8] : "nodevice";
-        return $"{SnapshotFilePrefix}{DateTimeOffset.UtcNow:yyyyMMdd'T'HHmmss'Z'}-{deviceSuffix}{SnapshotFileExtension}";
+        string timestamp = DateTimeOffset.UtcNow.ToString(
+            "yyyyMMdd'T'HHmmss'Z'",
+            System.Globalization.CultureInfo.InvariantCulture);
+        return $"{SnapshotFilePrefix}{timestamp}-{deviceSuffix}{SnapshotFileExtension}";
     }
 
     internal static bool IsSnapshotName(string name) =>

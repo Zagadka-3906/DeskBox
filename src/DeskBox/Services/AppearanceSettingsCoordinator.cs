@@ -19,13 +19,17 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
     private const string TrayIconStyleHidden = "Hidden";
 
     private readonly SettingsService _settings;
+    private readonly Func<Task>? _clearPerWidgetBackgroundsExternal;
     private bool _stopped;
 
     internal bool IsStopped => _stopped;
 
-    public AppearanceSettingsCoordinator(SettingsService settings)
+    public AppearanceSettingsCoordinator(
+        SettingsService settings,
+        Func<Task>? clearPerWidgetBackgroundsExternal = null)
     {
         _settings = settings;
+        _clearPerWidgetBackgroundsExternal = clearPerWidgetBackgroundsExternal;
     }
 
     public AppearanceMaterialSettings ReadMaterial()
@@ -85,10 +89,12 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
     public AppearanceAnimationSettings ReadAnimation()
     {
         WidgetShellSettingsSlice shell = _settings.Settings.WidgetShell;
+        string effect = WidgetAnimationKinds.NormalizeEffect(shell.WidgetAnimationEffect);
         return new(
-            WidgetAnimationKinds.NormalizeEffect(shell.WidgetAnimationEffect),
+            effect,
             WidgetAnimationKinds.NormalizeSpeed(shell.WidgetAnimationSpeed),
-            WidgetAnimationKinds.NormalizeSlideDirection(
+            WidgetAnimationKinds.NormalizeSlideDirectionForEffect(
+                shell.WidgetAnimationEffect,
                 shell.WidgetAnimationSlideDirection),
             WidgetAnimationKinds.NormalizeEasingIntensity(
                 shell.WidgetAnimationEasingIntensity),
@@ -293,12 +299,14 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
         string normalized = preference is
             SettingsService.WidgetCornerPreferenceSquare or
             SettingsService.WidgetCornerPreferenceSmall or
-            SettingsService.WidgetCornerPreferenceRound
+            SettingsService.WidgetCornerPreferenceRound or
+            SettingsService.WidgetCornerPreferenceLarge
                 ? preference
                 : SettingsService.WidgetCornerPreferenceRound;
         WidgetShellSettingsSlice shell = _settings.Settings.WidgetShell;
         if (shell.WidgetCornerPreference == normalized) return;
         shell.WidgetCornerPreference = normalized;
+        _settings.RequestAppearancePreview();
         _settings.SaveDebounced();
     }
 
@@ -314,6 +322,7 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
         WidgetShellSettingsSlice shell = _settings.Settings.WidgetShell;
         if (shell.WidgetBorderColorMode == normalized) return;
         shell.WidgetBorderColorMode = normalized;
+        _settings.RequestAppearancePreview();
         _settings.SaveDebounced();
     }
 
@@ -329,6 +338,7 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
         WidgetShellSettingsSlice shell = _settings.Settings.WidgetShell;
         if (shell.WidgetBorderStyle == normalized) return;
         shell.WidgetBorderStyle = normalized;
+        _settings.RequestAppearancePreview();
         _settings.SaveDebounced();
     }
 
@@ -365,7 +375,14 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
     {
         ThrowIfStopped();
         WidgetShellSettingsSlice shell = _settings.Settings.WidgetShell;
-        if (shell.WidgetBackgroundUnifiedImage == fileName) return;
+        // Deep review R13-4 (E8 audit): a same-extension repick lands the
+        // SAME storage name (background.png → background.png) with NEW file
+        // content underneath. Skipping on value-equal turned the explicit
+        // user action into a full no-op — no preview, no save, no notify —
+        // and the live windows kept the old pixels until a rebuild. Equal
+        // non-null picks now run the full apply; the stamp-keyed shared
+        // cache picks up the new content. Only null==null stays a no-op.
+        if (shell.WidgetBackgroundUnifiedImage == fileName && fileName is null) return;
         shell.WidgetBackgroundUnifiedImage = fileName;
         _settings.RequestAppearancePreview();
         _settings.SaveDebounced();
@@ -434,6 +451,19 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
     public int ClearPerWidgetBackgrounds()
     {
         ThrowIfStopped();
+        if (_clearPerWidgetBackgroundsExternal is { } clearExternal)
+        {
+            // Two-process mode: the overrides live in the layout domain,
+            // which only the MAIN process accepts writes for — the clear
+            // rides the appearance.clear-per-widget-backgrounds command
+            // (asset deletion included, response slice re-merges the
+            // mirror). The count comes from a read-only scan of the live
+            // mirror so the result toast stays accurate (batch R8).
+            int predicted = CountPerWidgetBackgroundOverrides();
+            _ = clearExternal();
+            return predicted;
+        }
+
         int cleared = 0;
         foreach (WidgetConfig widget in _settings.Settings.WidgetLayout.Widgets)
         {
@@ -461,6 +491,11 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
 
         return cleared;
     }
+
+    public int CountPerWidgetBackgroundOverrides() =>
+        _settings.Settings.WidgetLayout.Widgets.Count(widget =>
+            WidgetBackgroundCustomization.GetImageFileNameOverride(widget) is not null ||
+            WidgetBackgroundCustomization.GetColorOverride(widget) is not null);
 
     public void SetFileNameLineCount(int lineCount)
     {
@@ -571,13 +606,22 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
         ThrowIfStopped();
         WidgetShellSettingsSlice shell = _settings.Settings.WidgetShell;
         string normalized = SettingsService.NormalizeWidgetAnimationEffect(effect);
-        if (shell.WidgetAnimationEffect == normalized)
+        string normalizedDirection = WidgetAnimationKinds.NormalizeSlideDirectionForEffect(
+            effect,
+            shell.WidgetAnimationSlideDirection);
+        if (shell.WidgetAnimationEffect == normalized &&
+            shell.WidgetAnimationSlideDirection == normalizedDirection)
         {
             return;
         }
 
         shell.WidgetAnimationEffect = normalized;
-        if (scheduleSave) _settings.SaveDebounced();
+        shell.WidgetAnimationSlideDirection = normalizedDirection;
+        if (scheduleSave)
+        {
+            _settings.NotifyWidgetAnimationSettingsChangedNow();
+            _settings.SaveDebounced(changeKind: SettingsChangeKind.Appearance);
+        }
     }
 
     public void SetAnimationSpeed(string? speed, bool scheduleSave = true)
@@ -591,7 +635,11 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
         }
 
         shell.WidgetAnimationSpeed = normalized;
-        if (scheduleSave) _settings.SaveDebounced();
+        if (scheduleSave)
+        {
+            _settings.NotifyWidgetAnimationSettingsChangedNow();
+            _settings.SaveDebounced(changeKind: SettingsChangeKind.Appearance);
+        }
     }
 
     public void SetAnimationSlideDirection(string? direction, bool scheduleSave = true)
@@ -605,7 +653,11 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
         }
 
         shell.WidgetAnimationSlideDirection = normalized;
-        if (scheduleSave) _settings.SaveDebounced();
+        if (scheduleSave)
+        {
+            _settings.NotifyWidgetAnimationSettingsChangedNow();
+            _settings.SaveDebounced(changeKind: SettingsChangeKind.Appearance);
+        }
     }
 
     public void SetAnimationEasingIntensity(string? intensity, bool scheduleSave = true)
@@ -619,7 +671,11 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
         }
 
         shell.WidgetAnimationEasingIntensity = normalized;
-        if (scheduleSave) _settings.SaveDebounced();
+        if (scheduleSave)
+        {
+            _settings.NotifyWidgetAnimationSettingsChangedNow();
+            _settings.SaveDebounced(changeKind: SettingsChangeKind.Appearance);
+        }
     }
 
     public void SetAnimationStaggerEnabled(bool enabled, bool scheduleSave = true)
@@ -632,7 +688,11 @@ public sealed class AppearanceSettingsCoordinator : IAppearanceSettings
         }
 
         shell.WidgetAnimationStaggerEnabled = enabled;
-        if (scheduleSave) _settings.SaveDebounced();
+        if (scheduleSave)
+        {
+            _settings.NotifyWidgetAnimationSettingsChangedNow();
+            _settings.SaveDebounced(changeKind: SettingsChangeKind.Appearance);
+        }
     }
 
     public void SetWidgetForegroundMode(string? mode)

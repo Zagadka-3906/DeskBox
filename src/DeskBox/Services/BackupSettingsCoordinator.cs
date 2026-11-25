@@ -54,15 +54,23 @@ public sealed class BackupSettingsCoordinator : IBackupSettings, IDisposable
             CloudBackupSettingsPolicy.NormalizeRetentionCount(cloud.CloudBackupRetentionCount),
             cloud.CloudBackupLastSuccessUtcTicks, cloud.CloudBackupLastFailureUtcTicks,
             cloud.CloudBackupLastUnverifiedUtcTicks,
-            options.Endpoint, options.HasEndpoint);
+            options.Endpoint, options.HasEndpoint, cloud.CloudBackupCustomWidgetsEnabled);
     }
 
     public void Update(BackupSettingsChange change)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        bool changed = false;
+        // Deep review R13-2 (D18 audit): this runs on the IPC dispatch
+        // pool thread while settings-commit applies swap the whole graph
+        // under the service lock — an unsynchronized read-modify-write
+        // could land its fields on the outgoing graph and silently lose
+        // the change (split-introduced window; pre-split both writers
+        // shared the UI thread).
+        _settings.MutateGraphUnderLock(() =>
+        {
         AppSettings settings = _settings.Settings;
         CloudBackupSettingsSlice cloud = settings.CloudBackup;
-        bool changed = false;
         if (change.LocalEnabled is { } localEnabled && settings.Backup.AutomaticBackupEnabled != localEnabled)
             { settings.Backup.AutomaticBackupEnabled = localEnabled; changed = true; }
         if (change.LocalIntervalMinutes is { } localInterval)
@@ -88,6 +96,23 @@ public sealed class BackupSettingsCoordinator : IBackupSettings, IDisposable
             string value = provider is CloudBackupSettingsPolicy.ProviderWebDav
                 ? CloudBackupSettingsPolicy.ProviderWebDav : CloudBackupSettingsPolicy.ProviderNone;
             if (cloud.CloudBackupProvider != value) { cloud.CloudBackupProvider = value; changed = true; }
+
+            // The provider dropdown is the cloud-backup master switch
+            // (product decision, batch R12 follow-up): turning it off must
+            // leave cloud backup fully off — not "endpoint gone but the
+            // remembered content toggles still read as half-on". The same
+            // write clears the three backup domains so the whole cloud
+            // state lands as OFF atomically; re-enabling WebDAV starts
+            // from a clean slate instead of silently resuming the old
+            // scope. (Scheduling already stops at provider=none — this is
+            // about the persisted and displayed state matching.)
+            if (value == CloudBackupSettingsPolicy.ProviderNone)
+            {
+                if (cloud.CloudBackupTodoDataEnabled) { cloud.CloudBackupTodoDataEnabled = false; changed = true; }
+                if (cloud.CloudBackupQuickCaptureDataEnabled) { cloud.CloudBackupQuickCaptureDataEnabled = false; changed = true; }
+                if (cloud.CloudBackupWidgetStyleEnabled) { cloud.CloudBackupWidgetStyleEnabled = false; changed = true; }
+                if (cloud.CloudBackupCustomWidgetsEnabled) { cloud.CloudBackupCustomWidgetsEnabled = false; changed = true; }
+            }
         }
         if (change.CloudServerUrl is { } url && cloud.CloudBackupServerUrl != url)
             { cloud.CloudBackupServerUrl = url; changed = true; }
@@ -101,6 +126,8 @@ public sealed class BackupSettingsCoordinator : IBackupSettings, IDisposable
             { cloud.CloudBackupQuickCaptureDataEnabled = quick; changed = true; }
         if (change.CloudWidgetStyleEnabled is { } style && cloud.CloudBackupWidgetStyleEnabled != style)
             { cloud.CloudBackupWidgetStyleEnabled = style; changed = true; }
+        if (change.CloudCustomWidgetsEnabled is { } custom && cloud.CloudBackupCustomWidgetsEnabled != custom)
+            { cloud.CloudBackupCustomWidgetsEnabled = custom; changed = true; }
         if (change.CloudIntervalMinutes is { } interval)
         {
             int value = CloudBackupSettingsPolicy.NormalizeIntervalMinutes(interval);
@@ -111,6 +138,7 @@ public sealed class BackupSettingsCoordinator : IBackupSettings, IDisposable
             int value = CloudBackupSettingsPolicy.NormalizeRetentionCount(retention);
             if (cloud.CloudBackupRetentionCount != value) { cloud.CloudBackupRetentionCount = value; changed = true; }
         }
+        });
         if (!changed) return;
         _settings.SaveDebounced();
         _refreshRuntimeOptions();
@@ -130,13 +158,13 @@ public sealed class BackupSettingsCoordinator : IBackupSettings, IDisposable
     }
 
     public Task<bool> HasCredentialAsync(BackupEndpoint endpoint, CancellationToken cancellationToken) =>
-        _cloud.HasCredentialAsync(CurrentOptions(endpoint), cancellationToken);
+        _cloud.HasCredentialAsync(CurrentOptions(endpoint).WithEffectiveConnectionProvider(), cancellationToken);
 
     public Task SaveCredentialAsync(BackupEndpoint endpoint, string secret, CancellationToken cancellationToken) =>
-        _cloud.SaveCredentialAsync(CurrentOptions(endpoint), secret, cancellationToken);
+        _cloud.SaveCredentialAsync(CurrentOptions(endpoint).WithEffectiveConnectionProvider(), secret, cancellationToken);
 
     public Task ProbeAsync(BackupEndpoint endpoint, string? secretOverride, CancellationToken cancellationToken) =>
-        _cloud.ProbeConnectionAsync(CurrentOptions(endpoint), secretOverride, cancellationToken);
+        _cloud.ProbeConnectionAsync(CurrentOptions(endpoint).WithEffectiveConnectionProvider(), secretOverride, cancellationToken);
 
     /// <summary>
     /// Remote inventory routed through <see cref="BackupRestoreActions"/>:

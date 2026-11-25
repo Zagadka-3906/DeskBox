@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Input;
 using DeskBox.Helpers;
 using DeskBox.Models;
 using DeskBox.Services;
@@ -37,7 +37,7 @@ public partial class SettingsViewModel
     // shell because it reaches the host's widget manager.
     private void OnInteractionLayerModeUserChanged()
     {
-        App.Current?.WidgetManager?.RefreshVisibleWidgetDesktopLayers("settings-layer-mode");
+        _widgetActions.RefreshVisibleWidgetDesktopLayers("settings-layer-mode");
     }
 
     public string SelectedLanguage
@@ -81,7 +81,7 @@ public partial class SettingsViewModel
     {
         // The editor already persisted the style through the appearance
         // coordinator; the tray icon refresh reaches the host.
-        App.Current.UpdateTrayIcon();
+        _appActions.UpdateTrayIcon();
     }
 
     private void OnAppearanceAccentColorSourceUserChanged(bool useSystem)
@@ -123,11 +123,6 @@ public partial class SettingsViewModel
         _settingsService.SaveDebounced();
     }
 
-    private void OnAppearanceAnimationPresetApplied()
-    {
-        _settingsService.SaveDebounced();
-    }
-
     // --- Appearance-section push surface ---
     //
     // Selections whose state machines stay on this shell (theme service,
@@ -154,7 +149,7 @@ public partial class SettingsViewModel
     {
         _appearanceSettings.UpdateHostEnvironment(
             !WindowsCompatibilityService.IsWindows11OrLater,
-            WindowsCompatibilityService.SupportsNativeWindowCorners,
+            WindowsCompatibilityService.SupportsWidgetCorners,
             ResolveSupportedMaterialKinds(WindowsCompatibilityService.IsWindows11OrLater));
     }
 
@@ -180,16 +175,30 @@ public partial class SettingsViewModel
                 SettingsService.WidgetMaterialTypeSolid
             ];
 
-    [RelayCommand]
+    public bool CanResetDisplayWidgetChromeOverrides =>
+        HasWidgetChromeOverrides(_settingsService.Settings, _widgetContentFactory, WidgetChromeCategory.Display);
+
+    public bool CanResetInteractiveWidgetChromeOverrides =>
+        HasWidgetChromeOverrides(_settingsService.Settings, _widgetContentFactory, WidgetChromeCategory.Interactive);
+
+    [RelayCommand(CanExecute = nameof(CanResetDisplayWidgetChromeOverrides))]
     public void ResetDisplayWidgetChromeOverrides()
     {
         ResetWidgetChromeOverrides(WidgetChromeCategory.Display);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanResetInteractiveWidgetChromeOverrides))]
     public void ResetInteractiveWidgetChromeOverrides()
     {
         ResetWidgetChromeOverrides(WidgetChromeCategory.Interactive);
+    }
+
+    internal void NotifyWidgetChromeOverrideCommandsChanged()
+    {
+        OnPropertyChanged(nameof(CanResetDisplayWidgetChromeOverrides));
+        OnPropertyChanged(nameof(CanResetInteractiveWidgetChromeOverrides));
+        ResetDisplayWidgetChromeOverridesCommand.NotifyCanExecuteChanged();
+        ResetInteractiveWidgetChromeOverridesCommand.NotifyCanExecuteChanged();
     }
 
     internal int ResetWidgetChromeOverrides(WidgetChromeCategory category)
@@ -201,10 +210,50 @@ public partial class SettingsViewModel
 
         if (changed > 0)
         {
-            _settingsService.SaveDebounced();
+            if (_widgetActions.IsHostAvailable)
+            {
+                _ = _widgetActions.ResetWidgetChromeOverrides(category == WidgetChromeCategory.Interactive);
+            }
+            else
+            {
+                _settingsService.SaveDebounced();
+            }
+            NotifyWidgetChromeOverrideCommandsChanged();
         }
 
         return changed;
+    }
+
+    internal static bool HasWidgetChromeOverrides(
+        AppSettings settings,
+        WidgetContentFactory widgetContentFactory,
+        WidgetChromeCategory category)
+    {
+        foreach (var widget in settings.WidgetLayout.Widgets)
+        {
+            WidgetContentDescriptor descriptor;
+            try
+            {
+                descriptor = widgetContentFactory.GetDescriptor(widget.WidgetKind);
+            }
+            catch (NotSupportedException)
+            {
+                continue;
+            }
+
+            if (descriptor.ChromeCategory != category)
+            {
+                continue;
+            }
+
+            if (widget.Metadata is not null &&
+                widget.Metadata.ContainsKey(WidgetChromeModeNames.MetadataKey))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static int ResetWidgetChromeOverrides(

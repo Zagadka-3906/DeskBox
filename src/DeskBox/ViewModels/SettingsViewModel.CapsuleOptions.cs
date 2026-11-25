@@ -1,3 +1,4 @@
+using DeskBox.Contracts;
 using CommunityToolkit.Mvvm.Input;
 using DeskBox.Models;
 using DeskBox.Services;
@@ -57,48 +58,18 @@ public partial class SettingsViewModel
         {
             _settingsService.SaveDebounced();
             NotifyCapsuleOverridePropertiesChanged();
+            _ = _widgetActions.ResetCapsuleOverrides(new CapsuleOverrideReset(
+                CapsuleOverrideResetScope.BehaviorOnly));
         }
     }
 
-    [RelayCommand]
-    private void ResetCapsuleGeometryOverrides()
-    {
-        int changed = 0;
-        foreach (var widget in _settingsService.Settings.Widgets)
-        {
-            if (widget.CompactWidth is not null)
-            {
-                widget.CompactWidth = null;
-                changed++;
-            }
-
-            if (widget.CompactPlacement is not null)
-            {
-                widget.CompactPlacement = null;
-                changed++;
-            }
-        }
-        foreach (WidgetGroupConfig group in _settingsService.Settings.WidgetGroups)
-        {
-            if (group.CompactWidth is not null)
-            {
-                group.CompactWidth = null;
-                changed++;
-            }
-
-            if (group.CompactPlacement is not null)
-            {
-                group.CompactPlacement = null;
-                changed++;
-            }
-        }
-
-        if (changed > 0)
-        {
-            _settingsService.SaveDebounced();
-            NotifyCapsuleOverridePropertiesChanged();
-        }
-    }
+    // ResetCapsuleGeometryOverrides removed (deep review R13-2, D8 debt
+    // census): zero XAML bindings, zero callers, and unlike its three
+    // siblings it never sent the layout-write command — a host-side call
+    // would have silently written nothing but the local mirror (the
+    // authoritative layout domain is preserved away from host commits).
+    // Reviving this needs a Geometry scope on CapsuleOverrideReset plus
+    // the command pair.
 
     public void ResetCapsuleOverridesForWidget(string widgetId)
     {
@@ -130,6 +101,9 @@ public partial class SettingsViewModel
 
         _settingsService.SaveDebounced();
         NotifyCapsuleOverridePropertiesChanged();
+        _ = _widgetActions.ResetCapsuleOverrides(new CapsuleOverrideReset(
+            CapsuleOverrideResetScope.WidgetAndGroup,
+            widgetId));
     }
 
     [RelayCommand]
@@ -152,6 +126,8 @@ public partial class SettingsViewModel
 
         _settingsService.SaveDebounced();
         NotifyCapsuleOverridePropertiesChanged();
+        _ = _widgetActions.ResetCapsuleOverrides(new CapsuleOverrideReset(
+            CapsuleOverrideResetScope.All));
     }
 
     private static bool HasCapsuleOverride(WidgetConfig widget) =>
@@ -202,6 +178,8 @@ public partial class SettingsViewModel
         {
             _settingsService.SaveDebounced();
             NotifyCapsuleOverridePropertiesChanged();
+            _ = _widgetActions.ResetCapsuleOverrides(new CapsuleOverrideReset(
+                CapsuleOverrideResetScope.WidthsOnly));
         }
     }
 
@@ -250,14 +228,18 @@ public partial class SettingsViewModel
             details.Add(_localizationService.T("Settings.Capsule.Overrides.Item.Position"));
         }
 
+        WidgetTitleIconKind iconKind = WidgetTitleIconKindNames.NormalizeKind(
+            WidgetTitleIconKindNames.FromWidgetConfig(widget));
+        string colorIconAssetName = WidgetTitleIconKindNames.GetColorAssetName(iconKind);
         string displayName = string.IsNullOrWhiteSpace(widget.Name)
-            ? GetWidgetKindDisplayName(widget.WidgetKind)
+            ? _localizationService.T(WidgetTitleIconKindNames.GetLocalizationKey(iconKind))
             : widget.Name.Trim();
         return new CapsuleOverrideSettingsItem(
             widget.Id,
             displayName,
             string.Join(" · ", details),
-            GetWidgetKindGlyph(widget.WidgetKind));
+            GetWidgetKindGlyph(widget.WidgetKind),
+            colorIconAssetName);
     }
 
     private string GetWidgetKindDisplayName(WidgetKind kind) => kind switch
@@ -299,7 +281,6 @@ public partial class SettingsViewModel
             HasSmartCapsuleCollapseOverride);
         ResetCapsuleBehaviorOverridesCommand.NotifyCanExecuteChanged();
         ResetCapsuleWidthOverridesCommand.NotifyCanExecuteChanged();
-        ResetCapsuleGeometryOverridesCommand.NotifyCanExecuteChanged();
         ResetAllCapsuleOverridesCommand.NotifyCanExecuteChanged();
     }
 }

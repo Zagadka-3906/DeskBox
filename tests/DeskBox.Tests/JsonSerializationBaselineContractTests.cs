@@ -17,40 +17,50 @@ public sealed class JsonSerializationBaselineContractTests : IDisposable
     {
         var expected = new Dictionary<string, int>(StringComparer.Ordinal)
         {
-            ["src/DeskBox/App.AotHotkeySmoke.cs"] = 1,
-            ["src/DeskBox/App.AotShortcutSmoke.cs"] = 1,
-            ["src/DeskBox/App.AotShellSmoke.cs"] = 1,
-            ["src/DeskBox/App.AotQuickAccessMutationSmoke.cs"] = 1,
-            ["src/DeskBox/App.AotMusicVolumeReadSmoke.cs"] = 1,
-            ["src/DeskBox/App.AotMusicVolumeMutationSmoke.cs"] = 2,
-            ["src/DeskBox/App.AotMusicVolumeSessionMutationSmoke.cs"] = 2,
-            ["src/DeskBox/App.AotManagedUiSmoke.cs"] = 1,
-            ["src/DeskBox/App.AotTodoRecurrenceReminderSmoke.cs"] = 1,
-            ["src/DeskBox/App.AotTodoNotificationLifecycleSmoke.cs"] = 1,
-            ["src/DeskBox/App.AotTodoNotificationActivationSmoke.cs"] = 1,
-            ["src/DeskBox/App.AotTodoNotificationForwardingSmoke.cs"] = 1,
+            ["src/DeskBox/App.PgoSeed.cs"] = 2,
             // 3: update-check manifest, GitHub release fallback, and the
             // display-only content-manifest fetch (release-notes window).
             ["src/DeskBox/Services/AppUpdateService.cs"] = 3,
             ["src/DeskBox/Services/CitySearchService.cs"] = 1,
+            ["src/DeskBox/Services/ClipboardStore.cs"] = 2,
+            ["src/DeskBox/Services/CustomWidgets/CustomWidgetDataStore.cs"] = 4,
+            ["src/DeskBox/Services/CustomWidgets/CustomWidgetNetworkSourceEngine.cs"] = 2,
+            ["src/DeskBox/Services/CustomWidgets/CustomWidgetRemoteCatalogService.cs"] = 5,
+            ["src/DeskBox/Services/Ai/CustomWidgetRemotePromptService.cs"] = 4,
             ["src/DeskBox/Services/DeskBoxAttachmentHealthService.cs"] = 1,
-            ["src/DeskBox/Services/DeskBoxDataBackupService.cs"] = 12,
+            ["src/DeskBox/Services/DeskBoxDataBackupService.cs"] = 20,
             ["src/DeskBox/Services/DeskBoxDiagnosticsBundleService.cs"] = 1,
             ["src/DeskBox/Services/DesktopAutoOrganizationSuppressionRegistry.cs"] = 2,
+            ["src/DeskBox/Services/DesktopOrganization/DesktopIconPositionLedgerStore.cs"] = 2,
             ["src/DeskBox/Services/DesktopOrganizationHistoryStore.cs"] = 2,
             ["src/DeskBox/Services/DesktopOrganizationRecoveryStore.cs"] = 2,
-            ["src/DeskBox/Services/FeedbackService.cs"] = 4,
+            ["src/DeskBox/Services/FeedbackService.cs"] = 6,
             ["src/DeskBox/Services/GlanceImageService.cs"] = 2,
             ["src/DeskBox/Services/GlanceWidgetStore.cs"] = 7,
             ["src/DeskBox/Services/LocalizationService.cs"] = 1,
+            ["src/DeskBox/Services/Lyrics/LrclibLyricsProvider.cs"] = 1,
+            ["src/DeskBox/Services/Lyrics/LyricsCacheStore.cs"] = 4,
             ["src/DeskBox/Services/ManagedStorageMigrationService.cs"] = 2,
+            ["src/DeskBox/Services/Media/MediaSessionProxyProtocol.cs"] = 2,
             ["src/DeskBox/Services/NativeNotificationActivationEnvelopeStore.cs"] = 2,
             ["src/DeskBox/Services/QuickCaptureStore.cs"] = 2,
             // 2: the wipe-recovery offer marker (read deserialize, atomic save serialize).
             ["src/DeskBox/Services/RecoveryOfferStore.cs"] = 2,
             ["src/DeskBox/Services/SearchHistoryService.cs"] = 2,
+            ["src/DeskBox/Services/SearchRecommendationLayoutService.cs"] = 2,
+            // Settings-host IPC pipe (batch 3b): envelope encode/decode on
+            // the client and server. The remote sink itself serializes via
+            // SettingsService.SerializeCurrentSettings under the service
+            // lock since batch R9, so it no longer appears here.
+            ["src/DeskBox/Services/SettingsIpcClient.cs"] = 2,
+            ["src/DeskBox/Services/SettingsIpcProtocol.cs"] = 3,
+            ["src/DeskBox/Services/SettingsIpcServer.cs"] = 2,
             ["src/DeskBox/Services/SettingsMigrationService.cs"] = 2,
-            ["src/DeskBox/Services/SettingsService.cs"] = 3,
+            // 10: legacy 3 + external-snapshot apply + disk-reload +
+            // appearance-preview apply + external layout merge + serialize
+            // current layout (batches 3d/R2) + boot-adoption deserialize +
+            // snapshot serialize (batch R8 settings.snapshot).
+            ["src/DeskBox/Services/SettingsService.cs"] = 10,
             // Startup session ledger: read-previous + write-current breadcrumb.
             ["src/DeskBox/Services/StartupSessionLedger.cs"] = 2,
             // Crash event report serialization for the support package.
@@ -59,8 +69,8 @@ public sealed class JsonSerializationBaselineContractTests : IDisposable
             ["src/DeskBox/Services/SyncRevisionsStore.cs"] = 2,
             ["src/DeskBox/Services/SyncStateStore.cs"] = 2,
             ["src/DeskBox/Services/TodoWidgetStore.cs"] = 3,
-            ["src/DeskBox/Services/WeatherService.cs"] = 5,
-            ["src/DeskBox/Services/WidgetFileStackSettings.cs"] = 7,
+            ["src/DeskBox/Services/WeatherService.cs"] = 9,
+            ["src/DeskBox/Services/WidgetFileStackSettings.cs"] = 11,
             ["src/DeskBox/Services/WidgetLayoutStore.cs"] = 2,
             // 3: the title-icon asset store's recent-emoji state file
             // (load deserialize, add deserialize, atomic save serialize).
@@ -84,37 +94,35 @@ public sealed class JsonSerializationBaselineContractTests : IDisposable
             Assert.Equal(expectedCount, actual[path]);
         }
 
-        Assert.Equal(41, actual.Count);
-        Assert.Equal(96, actual.Values.Sum());
+        Assert.Equal(43, actual.Count);
+        Assert.Equal(144, actual.Values.Sum());
 
         string[] expectedContextOwners =
         [
-            "src/DeskBox/App.AotHotkeySmoke.cs",
-            "src/DeskBox/App.AotManagedUiSmoke.cs",
-            "src/DeskBox/App.AotMusicVolumeMutationSmoke.cs",
-            "src/DeskBox/App.AotMusicVolumeReadSmoke.cs",
-            "src/DeskBox/App.AotMusicVolumeSessionMutationSmoke.cs",
-            "src/DeskBox/App.AotQuickAccessMutationSmoke.cs",
-            "src/DeskBox/App.AotShellSmoke.cs",
-            "src/DeskBox/App.AotShortcutSmoke.cs",
-            "src/DeskBox/App.AotTodoNotificationActivationSmoke.cs",
-            "src/DeskBox/App.AotTodoNotificationForwardingSmoke.cs",
-            "src/DeskBox/App.AotTodoNotificationLifecycleSmoke.cs",
-            "src/DeskBox/App.AotTodoRecurrenceReminderSmoke.cs",
+            "src/DeskBox/Services/Ai/CustomWidgetRemotePromptService.cs",
             "src/DeskBox/Services/AppUpdateService.cs",
+            "src/DeskBox/Services/ClipboardStore.cs",
+            "src/DeskBox/Services/CustomWidgets/CustomWidgetDataStore.cs",
+            "src/DeskBox/Services/CustomWidgets/CustomWidgetNetworkSourceEngine.cs",
+            "src/DeskBox/Services/CustomWidgets/CustomWidgetRemoteCatalogService.cs",
             "src/DeskBox/Services/DeskBoxDataBackupService.cs",
             "src/DeskBox/Services/DeskBoxDiagnosticsBundleService.cs",
+            "src/DeskBox/Services/DesktopOrganization/DesktopIconPositionLedgerStore.cs",
             "src/DeskBox/Services/DesktopOrganizationHistoryStore.cs",
             "src/DeskBox/Services/DesktopOrganizationRecoveryStore.cs",
             "src/DeskBox/Services/FeedbackService.cs",
             "src/DeskBox/Services/GlanceImageService.cs",
             "src/DeskBox/Services/GlanceWidgetStore.cs",
             "src/DeskBox/Services/LocalizationService.cs",
+            "src/DeskBox/Services/Lyrics/LyricsJsonContext.cs",
             "src/DeskBox/Services/ManagedStorageMigrationModels.cs",
+            "src/DeskBox/Services/Media/MediaSessionProxyProtocol.cs",
             "src/DeskBox/Services/NativeNotificationActivationEnvelopeStore.cs",
             "src/DeskBox/Services/QuickCaptureStore.cs",
             "src/DeskBox/Services/RecoveryOfferStore.cs",
             "src/DeskBox/Services/SearchHistoryService.cs",
+            "src/DeskBox/Services/SearchRecommendationLayoutService.cs",
+            "src/DeskBox/Services/SettingsIpcProtocol.cs",
             "src/DeskBox/Services/SettingsService.cs",
             "src/DeskBox/Services/StartupSessionLedger.cs",
             "src/DeskBox/Services/SyncRevisionsStore.cs",
@@ -135,8 +143,26 @@ public sealed class JsonSerializationBaselineContractTests : IDisposable
             .Order()
             .ToArray();
 
-        Assert.Equal(37, actualContextOwners.Length);
+        Assert.Equal(35, actualContextOwners.Length);
         Assert.Equal(expectedContextOwners, actualContextOwners);
+
+        // External AOT smoke sources must also stay reflection-free and source-generated.
+        foreach (string smokePath in Directory.EnumerateFiles(
+                     TestPaths.FromRepository("tests/DeskBox.AotSmoke"),
+                     "*.cs",
+                     SearchOption.AllDirectories))
+        {
+            string smokeSource = File.ReadAllText(smokePath);
+            if (Regex.IsMatch(
+                    smokeSource,
+                    @"JsonSerializer\.(?:SerializeToUtf8Bytes|Serialize|Deserialize)(?:Async)?\b"))
+            {
+                Assert.Contains("JsonSerializerContext", smokeSource, StringComparison.Ordinal);
+            }
+            Assert.False(
+                Regex.IsMatch(smokeSource, @"new\s+JsonStringEnumConverter\s*(?:<|\(\s*\))"),
+                $"{smokePath} must not construct JsonStringEnumConverter.");
+        }
     }
 
     [Fact]
@@ -178,6 +204,7 @@ public sealed class JsonSerializationBaselineContractTests : IDisposable
             "LocalizationJsonContext.Default.LocalizedStrings",
             "DiagnosticsJsonContext.Default.DiagnosticSnapshot"
         ];
+        Assert.Contains("new Utf8JsonReader(", localization, StringComparison.Ordinal);
         string allPhaseOneSources = string.Join(
             Environment.NewLine,
             appUpdate,
@@ -237,13 +264,18 @@ public sealed class JsonSerializationBaselineContractTests : IDisposable
 
         var expectedTypeInfoReferences = new Dictionary<string, int>(StringComparer.Ordinal)
         {
-            ["SettingsJsonContext.Default.AppSettings"] = 3,
+            // 8: legacy 3 + the settings-host split's external-snapshot apply
+            // and disk-reload deserializes (batch 3a) + the boot-adoption
+            // deserialize and snapshot serialize (batch R8).
+            ["SettingsJsonContext.Default.AppSettings"] = 8,
             ["QuickCaptureJsonContext.Default.StoreData"] = 2,
             ["TodoJsonContext.Default.StoreData"] = 3,
+            // 7: six store calls (unified load/migration deserialize + save/update
+            // paths) + the settings-host relay serialize (batch R8).
             ["GlancePreferencesJsonContext.Default.Preferences"] = 7,
             ["GlanceImageCatalogJsonContext.Default.ImageCatalog"] = 2,
-            ["WidgetMetadataJsonContext.Default.StringMap"] = 2,
-            ["WidgetMetadataJsonContext.Default.StringListMap"] = 2,
+            ["WidgetMetadataJsonContext.Default.StringMap"] = 4,
+            ["WidgetMetadataJsonContext.Default.StringListMap"] = 4,
             ["WidgetMetadataJsonContext.Default.StringList"] = 3
         };
         foreach ((string reference, int expectedCount) in expectedTypeInfoReferences)
@@ -255,7 +287,7 @@ public sealed class JsonSerializationBaselineContractTests : IDisposable
                     Regex.Escape(reference) + @"\b").Count);
         }
 
-        Assert.Equal(24, expectedTypeInfoReferences.Values.Sum());
+        Assert.Equal(33, expectedTypeInfoReferences.Values.Sum());
         Assert.DoesNotContain("JsonSerializerOptions", allPhaseTwoSources, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "new JsonStringEnumConverter()",
@@ -464,7 +496,7 @@ public sealed class JsonSerializationBaselineContractTests : IDisposable
             ["QuickCaptureStoreData", "TodoWidgetData"],
             GenericTypeArguments(attachmentHealth, "ReadJson"));
         Assert.Equal(
-            ["AppSettings", "DesktopOrganizationHistoryData", "QuickCaptureStoreData", "TodoWidgetData", "WidgetLayoutDocument"],
+            ["AppSettings", "ClipboardStoreDocument", "CustomWidgetStorePayload", "DesktopOrganizationHistoryData", "GlanceWidgetData", "QuickCaptureStoreData", "TodoWidgetData", "WidgetLayoutDocument"],
             GenericTypeArguments(backup, "ValidateJsonFileIfPresent"));
         Assert.Contains(
             "private static T ReadJson<T>(string path, JsonTypeInfo<T> jsonTypeInfo)",
@@ -473,7 +505,8 @@ public sealed class JsonSerializationBaselineContractTests : IDisposable
         Assert.Contains(
             "private static void ValidateJsonFileIfPresent<T>(\r\n" +
             "        string path,\r\n" +
-            "        JsonTypeInfo<T> jsonTypeInfo)",
+            "        JsonTypeInfo<T> jsonTypeInfo,\r\n" +
+            "        bool allowNewerVersionFallback = false)",
             backup.ReplaceLineEndings("\r\n"),
             StringComparison.Ordinal);
 

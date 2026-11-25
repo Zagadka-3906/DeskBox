@@ -1,3 +1,4 @@
+using DeskBox.Services;
 using DeskBox.Views;
 
 namespace DeskBox;
@@ -11,6 +12,7 @@ public partial class App
         CancelBackgroundMemoryCleanup();
         if (_desktopOrganizationWindow is null)
         {
+            EnsureXamlLoopLifelineIfNoOtherWindows();
             var window = new DesktopOrganizationWindow();
             _desktopOrganizationWindow = window;
             ThemeService.TrackWindow(window);
@@ -28,8 +30,13 @@ public partial class App
         return _desktopOrganizationWindow;
     }
 
-    private void DesktopOrganizationWindow_StateChanged(object? sender, EventArgs e) =>
-        _settingsWindow?.RefreshDesktopOrganizationState();
+    private void DesktopOrganizationWindow_StateChanged(object? sender, EventArgs e)
+    {
+        // Deep review R13-2 (D8 census): the smoke-harness branch was never
+        // consumed (no smoke drives the desktop-organization window) and
+        // the retail push no-ops safely without the IPC server.
+        _ = PushSettingsIpcEventAsync(SettingsIpcMethods.HostDesktopOrgRefresh, null);
+    }
 
     private void DesktopOrganizationWindow_Closed(object sender, Microsoft.UI.Xaml.WindowEventArgs args)
     {
@@ -46,7 +53,10 @@ public partial class App
             _desktopOrganizationWindow = null;
         }
 
-        _settingsWindow?.RefreshDesktopOrganizationState();
+#if DESKBOX_NATIVE_AOT && DESKBOX_AOT_SMOKE_HARNESS
+        RefreshInProcessSettingsDesktopOrganizationForSmoke();
+#endif
+        _ = PushSettingsIpcEventAsync(SettingsIpcMethods.HostDesktopOrgRefresh, null);
         ScheduleLightMemoryCleanup(completedHeavyOperation: true);
         ScheduleBackgroundMemoryCleanup("desktop-organization-closed");
     }

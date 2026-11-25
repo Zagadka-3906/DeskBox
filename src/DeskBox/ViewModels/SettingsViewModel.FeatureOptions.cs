@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Collections.ObjectModel;
 using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -106,7 +106,7 @@ public partial class SettingsViewModel
             return;
         }
 
-        App.Current?.GlobalHotkeyService?.SetEnabled(value);
+        _hotkeyActions.SetEnabled(value);
         RefreshGlobalHotkeyState();
     }
 
@@ -128,33 +128,60 @@ public partial class SettingsViewModel
         // The Todo switch's state (incl. its pending async transition) is
         // the section editor's projection (batch 47).
         if (kind == WidgetKind.Todo) return _todoSettings.Enabled;
-        if (kind == WidgetKind.Search) return _searchFeatureSettings.Enabled;
-        return App.Current?.WidgetManager?.IsFeatureWidgetEnabled(kind) ??
-               FeatureWidgetSettings.IsEnabled(_settingsService.Settings, kind);
+        return _widgetActions.IsFeatureWidgetEnabled(kind);
     }
 
-    public void SetWidgetEnabled(WidgetKind kind, bool enabled)
+    public async void SetWidgetEnabled(WidgetKind kind, bool enabled)
     {
+        // Every feature switch rides the one facade command: the main
+        // process runs the kind's full chain (coordinator side effects for
+        // QuickCapture/Todo/Search, dictionary + manager apply for the
+        // rest). The local memory mirror flips the switch UI immediately;
+        // the command response reconciles it with the authoritative value —
+        // the reload push alone can lag seconds behind the widget
+        // animation, and the dictionary never rides settings.json at all,
+        // so waiting for the reload would show a permanently stale switch.
+        MirrorFeatureEnabledLocally(kind, enabled);
+        try
+        {
+            bool applied = await _widgetActions.SetFeatureWidgetEnabled(kind, enabled);
+            if (applied != enabled)
+            {
+                MirrorFeatureEnabledLocally(kind, applied);
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"[SettingsViewModel] SetWidgetEnabled({kind}, {enabled}) failed: {ex}");
+            MirrorFeatureEnabledLocally(kind, !enabled);
+        }
+    }
+
+    private void MirrorFeatureEnabledLocally(WidgetKind kind, bool enabled)
+    {
+        // Memory mirror for the switch UI, routed through each feature's
+        // owning editor/coordinator exactly like the pre-split switch did —
+        // direct migrated-field writes from the shell are contract-forbidden.
         switch (kind)
         {
             case WidgetKind.QuickCapture:
-                // The Quick Capture switch's write chain (persist + host
-                // widget apply) lives on the section editor (batch 46).
                 _quickCaptureSettingsEditor.SetFeatureEnabled(enabled);
-                return;
+                break;
             case WidgetKind.Todo:
-                // The Todo switch's write chain (persist + host widget
-                // apply) lives on the section editor (batch 47).
-                _todoSettings.SetFeatureEnabled(enabled);
-                return;
-            case WidgetKind.Search:
-                TrackSearchFeatureAction(_searchFeatureSettings.SetEnabledAsync(enabled, reveal: enabled));
-                return;
+                // Presentation-only: the card's own command below is the
+                // write; re-entering the section switch chain here fired a
+                // second, racing enable (batch R8).
+                _todoSettings.SetEnabledPresentationOnly(enabled);
+                break;
+            default:
+                FeatureWidgetSettings.SetEnabled(_settingsService.Settings, kind, enabled);
+                break;
         }
 
-        _featureWidgetsSettings.SetFeatureWidgetEnabled(kind, enabled);
-        _ = SyncFeatureWidgetAsync(kind, enabled);
+        OnPropertyChanged(nameof(FeatureWidgetEntries));
     }
+
+    internal event Action? ClipboardSettingsRefreshRequested;
 
     public async Task ResetFeatureWidgetAsync(WidgetKind kind)
     {
@@ -166,15 +193,7 @@ public partial class SettingsViewModel
         try
         {
             await ApplyFeatureWidgetDefaultSettingsAsync(kind);
-
-            if (App.Current?.WidgetManager is { } widgetManager)
-            {
-                await widgetManager.ResetFeatureWidgetAsync(kind);
-            }
-            else
-            {
-                await _settingsService.SaveAsync();
-            }
+            await _widgetActions.ResetFeatureWidgetAsync(kind);
         }
         catch (Exception ex)
         {
@@ -189,7 +208,6 @@ public partial class SettingsViewModel
 
     private async Task ApplyFeatureWidgetDefaultSettingsAsync(WidgetKind kind)
     {
-        Task recordingDrain = Task.CompletedTask;
         bool wasApplyingSnapshot = _isApplyingSettingsSnapshot;
         _isApplyingSettingsSnapshot = true;
         try
@@ -199,14 +217,8 @@ public partial class SettingsViewModel
                 case WidgetKind.QuickCapture:
                     _quickCaptureSettings.ResetTabPreferences(scheduleSave: false);
                     _quickCaptureSettings.ResetPresentationPreferences(scheduleSave: false);
-                    _quickCaptureSettings.ResetRecentLimit(scheduleSave: false);
-                    recordingDrain = _quickCaptureSettings.ResetRecordingAsync();
                     _quickCaptureSettings.ResetEditorPreferences(scheduleSave: false);
-                    // The section editor re-projects from the coordinator's
-                    // reset state (the old shell mirror assignments and the
-                    // diagnostics rebuild folded into this sync).
                     _quickCaptureSettingsEditor.SyncPresentation();
-                    _quickCaptureSettingsEditor.RefreshClipboardDiagnostics();
                     break;
                 case WidgetKind.Todo:
                     _todoSettings.ResetDisplayOptions(scheduleSave: false);
@@ -239,6 +251,10 @@ public partial class SettingsViewModel
                     _settingsService.Settings.DormElectricity.DormElectricityUsagePeriod = DormElectricityPeriods.SevenDays;
                     _settingsService.Settings.DormElectricity.DormElectricityPaymentPeriod = DormElectricityPeriods.OneYear;
                     break;
+                case WidgetKind.Clipboard:
+                    _settingsService.MutateGraphUnderLock(() =>
+                        SettingsService.ApplyDefaultClipboardPreferences(_settingsService.Settings.Clipboard));
+                    break;
             }
         }
         finally
@@ -246,8 +262,11 @@ public partial class SettingsViewModel
             _isApplyingSettingsSnapshot = wasApplyingSnapshot;
         }
 
-        await recordingDrain;
         await _settingsService.SaveAsync();
+        if (kind == WidgetKind.Clipboard)
+        {
+            _hotkeyActions.RefreshClipboardHotkeyRegistration();
+        }
     }
 
     private void RefreshFeatureWidgetViewState(WidgetKind kind)
@@ -255,11 +274,7 @@ public partial class SettingsViewModel
         switch (kind)
         {
             case WidgetKind.QuickCapture:
-                // The section editor re-projects the whole Quick Capture
-                // surface (the old per-property notifications are its own
-                // PropertyChanged broadcasts now).
                 _quickCaptureSettingsEditor.SyncPresentation();
-                _quickCaptureSettingsEditor.RefreshClipboardDiagnostics();
                 break;
             case WidgetKind.Todo:
                 // The section editor re-projects the whole Todo surface
@@ -276,28 +291,9 @@ public partial class SettingsViewModel
                 // PropertyChanged broadcasts now).
                 _weatherSettings.Refresh();
                 break;
-        }
-    }
-
-    private async Task SyncFeatureWidgetAsync(WidgetKind kind, bool enabled)
-    {
-        try
-        {
-            if (App.Current?.WidgetManager is not { } widgetManager)
-            {
-                await _settingsService.SaveAsync();
-                return;
-            }
-
-            await widgetManager.SetFeatureWidgetEnabledAsync(kind, enabled, reveal: enabled);
-        }
-        catch (Exception ex)
-        {
-            App.Log($"[SettingsViewModel] Failed to sync feature widget enabled state kind={kind}: {ex}");
-        }
-        finally
-        {
-            OnPropertyChanged(nameof(FeatureWidgetEntries));
+            case WidgetKind.Clipboard:
+                ClipboardSettingsRefreshRequested?.Invoke();
+                break;
         }
     }
 

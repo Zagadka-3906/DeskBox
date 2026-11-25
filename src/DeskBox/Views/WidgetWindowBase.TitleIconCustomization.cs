@@ -246,10 +246,43 @@ public abstract partial class WidgetWindowBase
                     loadFailed: () => OnCustomBackgroundLoadFailed(path))
                 : WidgetBackgroundImageSourceFactory.TryCreate(
                     path,
-                    loadFailed: () => OnCustomBackgroundLoadFailed(path));
+                    loadFailed: () => OnCustomBackgroundLoadFailed(path),
+                    decodePixelWidth: ResolvePerWidgetBackgroundDecodePixels());
+        }
+        else if (shared &&
+                 WidgetSharedImageSourceCache.TryGet(
+                     path,
+                     WidgetBackgroundImageSourceFactory.CreateSource,
+                     loadFailed: () => OnCustomBackgroundLoadFailed(path)) is { } refreshed)
+        {
+            // Deep review R13-4 (E8 audit): the SHARED background must not
+            // be short-circuited by the same-path memo — the storage name
+            // is stable across repicks (background.png → background.png)
+            // while the file content changes, and the stamp-keyed cache
+            // re-query is exactly how a same-name repick reaches live
+            // windows. It costs one file stat on unchanged content; the
+            // per-widget branch keeps its memo because its factory decodes
+            // on every call.
+            _customBackgroundSource = refreshed;
         }
 
         return _customBackgroundSource;
+    }
+
+    private int ResolvePerWidgetBackgroundDecodePixels()
+    {
+        double dipScale = HWnd != IntPtr.Zero
+            ? Win32Helper.GetDpiScaleForWindow(HWnd, xamlRoot: null)
+            : 1.5;
+        if (!double.IsFinite(dipScale) || dipScale <= 0)
+        {
+            dipScale = 1.5;
+        }
+
+        double logicalSpan = Math.Max(
+            Math.Max(Config.Width, Config.Height),
+            WidgetShellControl.ActualWidth);
+        return WidgetBackgroundImageSourceFactory.ResolveBoundedDecodePixels(logicalSpan * dipScale);
     }
 
     private void OnCustomBackgroundLoadFailed(string? path)

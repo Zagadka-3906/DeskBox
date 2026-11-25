@@ -41,7 +41,7 @@ public sealed class BackupSettingsSurfaceTests
             CloudTodoEnabled: true, CloudQuickCaptureEnabled: false, CloudWidgetStyleEnabled: true,
             CloudIntervalMinutes: 360, CloudRetentionCount: 10,
             CloudLastSuccessUtcTicks: 0, CloudLastFailureUtcTicks: 0, CloudLastUnverifiedUtcTicks: 0,
-            Endpoint: DavA, HasEndpoint: true));
+            Endpoint: DavA, HasEndpoint: true, CloudCustomWidgetsEnabled: true));
         using var editor = Create(fake);
 
         Assert.False(editor.LocalBackupEnabled);
@@ -58,6 +58,7 @@ public sealed class BackupSettingsSurfaceTests
         Assert.True(editor.IncludeTodoData);
         Assert.False(editor.IncludeQuickCaptureData);
         Assert.True(editor.IncludeWidgetStyle);
+        Assert.True(editor.IncludeCustomWidgets);
         Assert.Equal(360, editor.SelectedIntervalMinutes);
         Assert.Equal(10, editor.SelectedRetentionCount);
         Assert.True(editor.ActionsEnabled);
@@ -81,7 +82,7 @@ public sealed class BackupSettingsSurfaceTests
     }
 
     [Fact]
-    public void UserEdits_WriteThroughWithoutEchoLoops()
+    public async Task UserEdits_WriteThroughWithoutEchoLoops()
     {
         var fake = new FakeBackupSettings(DefaultSnapshot(DavA) with { CloudWidgetStyleEnabled = true });
         using var editor = Create(fake);
@@ -98,10 +99,14 @@ public sealed class BackupSettingsSurfaceTests
         editor.IncludeTodoData = true;
         editor.IncludeQuickCaptureData = true;
         editor.IncludeWidgetStyle = false;
+        editor.IncludeCustomWidgets = true;
         editor.SelectedIntervalMinutes = 360; // valid preset, differs from default
         editor.SelectedIntervalMinutes = 61; // unknown preset normalizes back
         editor.SelectedRetentionCount = 10; // valid preset, differs from default
         editor.SelectedRetentionCount = 99; // unknown preset normalizes back
+        // Updates ride a pool thread since batch R11 (the blocking pipe
+        // pair used to run on the UI thread); drain before asserting.
+        await editor.PendingReads;
 
         Assert.Contains(fake.Changes, c => c.LocalEnabled == false);
         Assert.Contains(fake.Changes, c => c.LocalIntervalMinutes == 30);
@@ -115,6 +120,7 @@ public sealed class BackupSettingsSurfaceTests
         Assert.Contains(fake.Changes, c => c.CloudTodoEnabled == true);
         Assert.Contains(fake.Changes, c => c.CloudQuickCaptureEnabled == true);
         Assert.Contains(fake.Changes, c => c.CloudWidgetStyleEnabled == false);
+        Assert.Contains(fake.Changes, c => c.CloudCustomWidgetsEnabled == true);
         Assert.Contains(fake.Changes, c => c.CloudIntervalMinutes == 360);
         Assert.Contains(fake.Changes, c => c.CloudIntervalMinutes == 1440);
         Assert.Contains(fake.Changes, c => c.CloudRetentionCount == 10);
@@ -130,7 +136,40 @@ public sealed class BackupSettingsSurfaceTests
         Assert.Equal(5, editor.SelectedRetentionCount);
         // Each accepted control edit produced exactly one change record
         // (normalized-back no-ops are skipped, like the legacy shell).
-        Assert.Equal(16, fake.Changes.Count);
+        Assert.Equal(17, fake.Changes.Count);
+    }
+
+    [Fact]
+    public async Task TurningProviderOff_SwitchesEveryCloudDomainOff()
+    {
+        // Batch R12 product decision: the provider dropdown is the cloud
+        // master switch — WebDAV off means cloud backup is fully off. The
+        // page must flip all three domain toggles immediately and send the
+        // off writes (the coordinator clears the persisted domains in the
+        // same write; these are the idempotent follow-ups).
+        var fake = new FakeBackupSettings(DefaultSnapshot(DavA) with
+        {
+            CloudTodoEnabled = true,
+            CloudQuickCaptureEnabled = true,
+            CloudWidgetStyleEnabled = true,
+            CloudCustomWidgetsEnabled = true,
+        });
+        using var editor = Create(fake);
+
+        Assert.True(editor.IncludeTodoData);
+        editor.SelectedProvider = "none";
+        await editor.PendingReads;
+
+        Assert.False(editor.IncludeTodoData);
+        Assert.False(editor.IncludeQuickCaptureData);
+        Assert.False(editor.IncludeWidgetStyle);
+        Assert.False(editor.ShowWebDavFields);
+        Assert.Contains(fake.Changes, c => c.CloudProvider == "none");
+        Assert.Contains(fake.Changes, c => c.CloudTodoEnabled == false);
+        Assert.Contains(fake.Changes, c => c.CloudQuickCaptureEnabled == false);
+        Assert.Contains(fake.Changes, c => c.CloudWidgetStyleEnabled == false);
+        Assert.Contains(fake.Changes, c => c.CloudCustomWidgetsEnabled == false);
+        Assert.False(editor.IncludeCustomWidgets);
     }
 
     [Fact]
@@ -155,15 +194,17 @@ public sealed class BackupSettingsSurfaceTests
     }
 
     [Fact]
-    public void UpdateLocalDirectory_NormalizesAndResets()
+    public async Task UpdateLocalDirectory_NormalizesAndResets()
     {
         var fake = new FakeBackupSettings(DefaultSnapshot(DavA));
         using var editor = Create(fake);
 
         editor.UpdateLocalDirectory(@"  D:\custom  ");
+        await editor.PendingReads;
         Assert.Contains(fake.Changes, c => c.LocalDirectory == @"D:\custom");
 
         editor.UpdateLocalDirectory("   ");
+        await editor.PendingReads;
         Assert.Contains(fake.Changes, c => c.LocalDirectory == "");
         Assert.True(editor.IsValidLocalDirectory(@"C:\any", out _));
     }

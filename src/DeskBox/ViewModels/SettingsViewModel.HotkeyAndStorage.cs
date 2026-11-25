@@ -42,28 +42,31 @@ public partial class SettingsViewModel
         {
             statusText = _localizationService.T("Settings.GlobalHotkey.Status.Disabled");
         }
-        else if (App.Current?.GlobalHotkeyService is not { } hotkeyService)
+        else if (_hotkeyActions.GetRuntimeState() is not { } hotkeyState)
         {
             statusText = _localizationService.T("Settings.GlobalHotkey.Status.Unavailable");
         }
-        else if (hotkeyService.IsRegistered)
+        else if (hotkeyState.IsRegistered)
         {
             // The risky-activation flag only tinted the legacy status kind,
             // which had no visual consumer; the status text is identical.
             statusText = _localizationService.Format(
                 "Settings.GlobalHotkey.Status.Active",
-                hotkeyService.CurrentGestureText);
+                hotkeyState.CurrentGestureText);
         }
         else
         {
-            statusText = string.IsNullOrWhiteSpace(hotkeyService.LastError)
+            statusText = string.IsNullOrWhiteSpace(hotkeyState.LastError)
                 ? _localizationService.T("Settings.GlobalHotkey.Status.Unregistered")
-                : hotkeyService.LastError;
+                : hotkeyState.LastError;
         }
 
         string warningText = activation.Kind == HotkeyActivationKind.WindowsTap
             ? _localizationService.T("Settings.GlobalHotkey.WindowsTapWarning")
-            : activation.Kind == HotkeyActivationKind.Chord &&
+            : activation.IsStandaloneSpaceDoubleTap
+                ? _localizationService.T("Settings.GlobalHotkey.DoubleSpaceWarning")
+            : activation.Kind is HotkeyActivationKind.Chord or HotkeyActivationKind.DoubleTap &&
+              !activation.IsModifierOnlyDoubleTap &&
               activation.Gesture.Modifiers == HotkeyModifierKeys.Alt &&
               activation.Gesture.VirtualKey == (int)Windows.System.VirtualKey.Space
                 ? _localizationService.T("Settings.GlobalHotkey.AltSpaceWarning")
@@ -71,7 +74,9 @@ public partial class SettingsViewModel
 
         bool canShowWarning = enabled &&
             (activation.Kind == HotkeyActivationKind.WindowsTap ||
-             (activation.Kind == HotkeyActivationKind.Chord &&
+             activation.IsStandaloneSpaceDoubleTap ||
+             (activation.Kind is HotkeyActivationKind.Chord or HotkeyActivationKind.DoubleTap &&
+              !activation.IsModifierOnlyDoubleTap &&
               GlobalHotkeyService.IsReservedSystemGesture(activation.Gesture)));
 
         _interactionSettings.UpdateGlobalHotkeyPresentation(new GlobalHotkeyPresentationSettings(
