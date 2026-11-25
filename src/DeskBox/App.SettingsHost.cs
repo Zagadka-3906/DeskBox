@@ -426,7 +426,6 @@ public partial class App
         var input = BuildSettingsHostFactoryInput(settings, localization, theme, client);
         Log("[SettingsHost] Factory input built");
         var window = input.CreateWindow();
-        window.DormElectricityCredentials = Services.CredentialStore;
         _settingsHostWindow = window;
         Log("[SettingsHost] Window constructed");
         window._isHostProcessWindow = true;

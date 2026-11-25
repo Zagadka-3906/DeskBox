@@ -102,6 +102,9 @@ internal sealed record SettingsWindowFactoryInput(
             RestoreActions,
             AppActions,
             DataActions,
-            AppUpdateService);
+            AppUpdateService)
+        {
+            DormElectricityCredentials = new PasswordVaultCredentialStore()
+        };
     }
 }

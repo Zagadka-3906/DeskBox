@@ -4,13 +4,13 @@
 
 完整中文说明 · [返回扩展版首页](README.md)
 
-> **非官方宿舍用电扩展版。** 本分支在 DeskBox 1.6.0 基础上加入深圳大学宿舍用电格子，由 [Zagadka-3906](https://github.com/Zagadka-3906) 独立维护，并非 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox)的发行版。[下载本分支的 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.6.0-dorm.1)。
+> **非官方宿舍用电扩展版。** 本分支在 DeskBox 1.6.0 基础上加入深圳大学宿舍用电格子，由 [Zagadka-3906](https://github.com/Zagadka-3906) 独立维护，并非 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox)的发行版。[下载本分支的 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.6.0-dorm.2)。
 
 本版已合并 [DeskBox 官方 1.6.0](https://github.com/Tianyu199509/DeskBox/releases/tag/v1.6.0)。学校缺少中间抄表记录时，格子显示可计算的跨日合计，并标出无法计算单日用电的日期。
 
 > 官方项目目前暂不合并外部 PR，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-[![宿舍用电扩展版](https://img.shields.io/badge/fork-v1.6.0--dorm.1-2563EB.svg)](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.6.0-dorm.1)
+[![宿舍用电扩展版](https://img.shields.io/badge/fork-v1.6.0--dorm.2-2563EB.svg)](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.6.0-dorm.2)
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%2F11-0078D4.svg)](#环境要求)
 [![x64 安装包](https://img.shields.io/badge/fork%20installer-x64-5C2D91.svg)](#下载)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
@@ -43,7 +43,7 @@ DeskBox 使用贴近 Windows 原生体验的材质，同时保留普通桌面文
 
 ### 宿舍用电扩展版（x64）
 
-- [下载非官方 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.6.0-dorm.1/DeskBox_DormElectricity_1.6.0_dorm.1_x64.exe)及其 [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.6.0-dorm.1/DeskBox_DormElectricity_1.6.0_dorm.1_x64.exe.sha256)。本版基于 DeskBox 1.6.0，增加了下述宿舍用电格子。
+- [下载非官方 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.6.0-dorm.2/DeskBox_DormElectricity_1.6.0_dorm.2_x64.exe)及其 [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.6.0-dorm.2/DeskBox_DormElectricity_1.6.0_dorm.2_x64.exe.sha256)。本版基于 DeskBox 1.6.0，增加了下述宿舍用电格子。
 
 安装包为内置私有 Windows App Runtime 的 x64 Full Native AOT 构建，尚未签名。更新前请备份 `%LOCALAPPDATA%\DeskBox\data`。软件内的更新入口指向官方发行版；直接安装不含此格子的官方版本会覆盖本扩展版，并可能改写已保存的格子布局。要保留宿舍用电格子，应先把官方更新合并到此分支，再构建新的安装包。
 
