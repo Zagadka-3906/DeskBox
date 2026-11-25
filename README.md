@@ -22,7 +22,7 @@
 
 ## 从旧整包迁移
 
-先备份 `%LOCALAPPDATA%\DeskBox\data`，记录旧格子的房间和提醒设置，再安装官方 DeskBox 并按上面步骤导入新格子。原来保存在同一 Windows 用户凭据库里的 SendKey 可以沿用。旧整包的源码和安装文件可从[历史分支](https://github.com/Zagadka-3906/DeskBox/tree/feature/dorm-electricity-widget)和[历史发行版](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.6.0-dorm.2)查阅。
+先备份 `%LOCALAPPDATA%\DeskBox\data`，记录旧格子的房间和提醒设置，再安装官方 DeskBox 并按上面步骤导入新格子。原来保存在同一 Windows 用户凭据库里的 SendKey 可以沿用。
 
 ## 构建
 
