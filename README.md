@@ -2,7 +2,7 @@
 
 在 DeskBox 桌面上查看宿舍的**剩余电量、预计可用天数、用电记录和缴费记录**。支持丽湖二期，可通过微信接收每日汇报和低电量提醒。
 
-[下载格子和本机服务](https://github.com/Zagadka-3906/DeskBox/releases/latest) · [下载官方 DeskBox](https://github.com/Tianyu199509/DeskBox/releases/latest)
+[下载格子和本机服务](https://github.com/Zagadka-3906/SZU-Dorm-Electricity/releases/latest) · [下载官方 DeskBox](https://github.com/Tianyu199509/DeskBox/releases/latest)
 
 ## 安装
 
@@ -29,7 +29,7 @@
 
 ## 更新
 
-DeskBox 本体通过官方渠道更新。更新宿舍用电格子时，下载本仓库的新版完整包，重新运行安装命令更新本机服务，再导入新版格子。原有房间和推送设置可继续使用。 [最新格子发行版](https://github.com/Zagadka-3906/DeskBox/releases/latest)
+DeskBox 本体通过官方渠道更新。更新宿舍用电格子时，下载本仓库的新版完整包，重新运行安装命令更新本机服务，再导入新版格子。原有房间和推送设置可继续使用。 [最新格子发行版](https://github.com/Zagadka-3906/SZU-Dorm-Electricity/releases/latest)
 
 ## 从源码构建
 
