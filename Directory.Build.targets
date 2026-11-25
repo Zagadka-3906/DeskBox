@@ -1,5 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <NuGetLockFilePath Condition="'$(PublishAot)' == 'true'">$(MSBuildProjectDirectory)\packages.aot.lock.json</NuGetLockFilePath>
-  </PropertyGroup>
-</Project>

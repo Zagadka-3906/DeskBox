@@ -1,27 +1,31 @@
-# DeskBox 宿舍用电扩展版
+# 深圳大学宿舍用电格子
 
-> **非官方发行版。** 本分支基于 [DeskBox 官方项目](https://github.com/Tianyu199509/DeskBox) 1.6.0，由 [Zagadka-3906](https://github.com/Zagadka-3906) 维护，增加深圳大学宿舍用电格子。此扩展版并非原作者发布或维护。
+可导入官方 DeskBox 的自定义格子，搭配 Windows 本机服务查询深圳大学宿舍电量。已在 **DeskBox 1.6.2、Windows x64** 上验证，DeskBox 后续更新可通过官方渠道安装。
 
-[下载 x64 安装包](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.6.0-dorm.2/DeskBox_DormElectricity_1.6.0_dorm.2_x64.exe) · [查看发行说明](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.6.0-dorm.2) · [SHA-256 校验文件](https://github.com/Zagadka-3906/DeskBox/releases/download/v1.6.0-dorm.2/DeskBox_DormElectricity_1.6.0_dorm.2_x64.exe.sha256)
+**[下载格子和本机服务](https://github.com/Zagadka-3906/DeskBox/releases/latest)** · [下载官方 DeskBox](https://github.com/Tianyu199509/DeskBox/releases/latest)
 
-本版已合并 [DeskBox 官方 1.6.0](https://github.com/Tianyu199509/DeskBox/releases/tag/v1.6.0)。学校缺少中间抄表记录时，格子显示可计算的跨日合计，并标出无法计算单日用电的日期。
+## 功能
 
-## 宿舍用电格子
+- 显示剩余电量，切换用电记录和缴费记录。查询范围可分别选近 3 天、7 天、1 个月、半年或 1 年。
+- 支持丽湖二期按楼栋、楼层、房间查询。查询时电脑需要能访问所选校区的电费系统。
+- 可通过 Server 酱向微信发送定时汇报、低电量提醒和测试消息。本机服务随 Windows 用户登录启动，DeskBox 关闭期间也可推送。
 
-- 在格子设置中选择校区和楼栋；丽湖二期从新站点逐级选择楼层与房间，其他校区填写房间号。查询需要能够访问对应的深圳大学宿舍用电系统。
-- 显示剩余电量和逐日用电量，用分段控件切换用电记录、缴费记录。
-- 两类记录分别可选择近 3 天、7 天、1 个月、半年或 1 年。
-- 每日用电量按格子的长宽比例竖排或横排；横排时鼠标滚轮可控制横向滚动。
-- 三点菜单提供刷新和设置选项。格子放大后仍显示记录列表。
-- 保存设置时检查所选房间；查询失败时显示错误，不沿用上一个房间的电量。
-- 可在格子设置中填写 Server 酱 Turbo SendKey，设置每日汇报时间与低电量阈值，并向微信发送测试消息。SendKey 保存在 Windows 凭据库，不写入设置文件。软件需要保持运行并能访问学校内网。
+## 安装
 
-## 安装与更新
+1. 安装官方 DeskBox 1.6.2 或兼容的后续版本。
+2. 从本仓库发行页下载并解压 `SZU-Dorm-Electricity-win-x64.zip`。在解压目录打开 PowerShell，运行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Bridge.ps1`，启动本机服务并设置登录启动。
+3. 双击 `SZU-Dorm-Electricity.dbxwidget`，在格子工坊点击「放到桌面」。已安装本机服务时，可单独下载格子文件导入。
+4. 打开格子右上角「⋯ → 连接或刷新数据」，允许它访问 `127.0.0.1:46382`。
+5. 打开「⋯ → 宿舍与推送设置」，选择房间、记录范围和提醒条件。需要微信提醒时，在本机页面填写 Server 酱 Turbo 的 SendKey，并可发送测试消息。 [Server 酱 Turbo](https://sct.ftqq.com/)
 
-本扩展版目前仅提供 Windows x64 安装包，采用 Full Native AOT 构建并内置私有 Windows App Runtime。安装包尚未签名，请按发行页提供的 SHA-256 校验文件核对。
+本机服务仅监听 `127.0.0.1:46382`。房间与通知设置保存在 `%LOCALAPPDATA%\DeskBoxDormElectricity\data`，SendKey 保存在当前 Windows 用户的凭据库中。
 
-安装前建议备份 `%LOCALAPPDATA%\DeskBox\data`。应用内的更新入口指向 **DeskBox 官方发行版**；直接安装不含此格子的官方版会覆盖扩展版，并可能改写格子布局。要保留宿舍用电格子，应先将官方更新合并到本分支，再重新构建安装包。
+## 从旧整包迁移
 
-宿舍用电格子会用所选校区、楼栋和房间号查询学校内网服务。设置与布局保存在本机。
+先备份 `%LOCALAPPDATA%\DeskBox\data`，记录旧格子的房间和提醒设置，再安装官方 DeskBox 并按上面步骤导入新格子。原来保存在同一 Windows 用户凭据库里的 SendKey 可以沿用。旧整包的源码和安装文件可从[历史分支](https://github.com/Zagadka-3906/DeskBox/tree/feature/dorm-electricity-widget)和[历史发行版](https://github.com/Zagadka-3906/DeskBox/releases/tag/v1.6.0-dorm.2)查阅。
 
-更多原版功能和系统要求见[完整中文说明](README.zh-CN.md)。本项目沿用原仓库的 [GPL-3.0-only 许可](LICENSE)。
+## 构建
+
+在仓库根目录使用 PowerShell 7 和 .NET 10 SDK，运行 `./Build.ps1`。`dist` 会生成格子包、Windows x64 压缩包和 SHA-256 校验文件。`./Build.ps1 -WidgetOnly` 只打包格子。
+
+`widget` 保存格子声明和脚本，`service` 保存本机服务及校园查询代码。服务复用了 DeskBox 旧扩展中的查询和凭据存取代码。本仓库按 [GPL-3.0-only](LICENSE) 公开源码。项目由 [Zagadka-3906](https://github.com/Zagadka-3906) 维护，官方程序由 [DeskBox 上游项目](https://github.com/Tianyu199509/DeskBox) 发布。

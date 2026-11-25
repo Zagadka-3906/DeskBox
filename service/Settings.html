@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>宿舍用电设置</title>
+  <link rel="stylesheet" href="/settings.css">
+  <script type="module" src="/settings.js"></script>
+</head>
+<body>
+  <main>
+    <h1>宿舍用电设置</h1>
+    <form id="settings">
+      <fieldset id="location">
+        <legend>查询宿舍</legend>
+        <div class="fields">
+          <label>校区 <select id="campus" required></select></label>
+          <label>楼栋 <select id="building" required></select></label>
+          <label id="floorField" hidden>楼层 <select id="floor"></select></label>
+          <label id="roomSelectField" hidden>房间 <select id="roomSelect"></select></label>
+          <label id="roomField">房间号 <input id="room" maxlength="80"></label>
+        </div>
+        <p id="locationStatus" class="note" role="status"></p>
+      </fieldset>
+      <fieldset>
+        <legend>显示范围</legend>
+        <div class="fields">
+          <label>用电记录 <select id="usagePeriod"></select></label>
+          <label>缴费记录 <select id="paymentPeriod"></select></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>微信推送</legend>
+        <p class="note">本机服务运行时会检查推送时间和电量。每天最多发送一次汇报和一次低电量提醒。</p>
+        <label>Server 酱 SendKey
+          <input id="sendKey" type="password" autocomplete="new-password" maxlength="120" placeholder="填写 SCT 开头的 SendKey">
+        </label>
+        <p id="keyStatus" class="note"></p>
+        <label class="check"><input id="clearKey" type="checkbox"> 清除已保存的 SendKey</label>
+        <div class="fields">
+          <label class="check"><input id="daily" type="checkbox"> 每天定时汇报</label>
+          <label>汇报时间 <input id="dailyTime" type="time" required></label>
+          <label class="check"><input id="low" type="checkbox"> 低电量提醒</label>
+          <label>提醒阈值（度） <input id="lowThreshold" type="number" min="0" max="10000" step="0.01" required></label>
+        </div>
+      </fieldset>
+      <div class="actions">
+        <button id="save" type="submit" disabled>保存设置</button>
+        <button id="test" type="button" disabled>发送测试消息</button>
+      </div>
+      <p id="status" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+</body>
+</html>

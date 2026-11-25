@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "id": "szu.dorm-electricity",
+  "name": "宿舍用电",
+  "version": "1.0.0",
+  "author": "Zagadka-3906",
+  "description": "查询深圳大学宿舍剩余电量、用电和缴费记录。",
+  "icon": "⚡",
+  "minSize": { "width": 292, "height": 220 },
+  "defaultSize": { "width": 380, "height": 390 },
+  "script": { "entry": "logic.js", "tickIntervalMs": 0 },
+  "state": {
+    "tab": "usage",
+    "requestedPage": "1",
+    "page": "1",
+    "pageCount": "1",
+    "room": "",
+    "balance": "—",
+    "recordedAt": "",
+    "period": "",
+    "status": "正在读取电量…"
+  },
+  "collections": {
+    "history": { "maxItems": 60, "sort": "newestFirst", "fields": ["date", "value"] }
+  },
+  "sources": [
+    {
+      "id": "dorm",
+      "type": "httpJson",
+      "url": "http://127.0.0.1:46382/api/snapshot?tab=${state.tab}&page=${state.requestedPage}",
+      "intervalMs": 60000,
+      "timeoutMs": 45000,
+      "targetCollection": "history",
+      "itemsPath": "rows",
+      "maxItems": 60,
+      "stateMap": {
+        "room": "room",
+        "balance": "balance",
+        "recordedAt": "recordedAt",
+        "period": "period",
+        "status": "status",
+        "page": "page",
+        "pageCount": "pageCount"
+      }
+    }
+  ],
+  "root": "main",
+  "elements": {
+    "main": {
+      "type": "Grid", "rows": "Auto,Auto,*,Auto", "rowSpacing": 8,
+      "padding": "12", "children": ["toolbar", "balanceCard", "history", "footer"]
+    },
+    "toolbar": {
+      "type": "Grid", "columns": "*,Auto", "columnSpacing": 6,
+      "children": ["tabs", "options"]
+    },
+    "tabs": {
+      "type": "Segmented", "bind": "state.tab", "onChange": { "type": "script.run", "fn": "changeTab" },
+      "options": [{ "value": "usage", "label": "用电" }, { "value": "payments", "label": "缴费" }]
+    },
+    "options": {
+      "type": "DropDownButton", "column": 1, "label": "⋯", "tooltip": "宿舍用电选项",
+      "menuItems": [
+        { "label": "宿舍与推送设置", "onClick": { "type": "url.open", "url": "http://127.0.0.1:46382/" } },
+        { "label": "连接或刷新数据", "onClick": {
+          "type": "http.request", "id": "connectDormService", "method": "GET",
+          "url": "http://127.0.0.1:46382/api/health",
+          "then": [{ "type": "source.refresh", "targetId": "dorm" }]
+        } }
+      ]
+    },
+    "balanceCard": {
+      "type": "Card", "row": 1, "tone": "subtle", "padding": "10,6,10,6", "children": ["summary"]
+    },
+    "summary": {
+      "type": "Grid", "columns": "*,Auto", "columnSpacing": 6, "children": ["where", "balance"]
+    },
+    "where": { "type": "Stack", "spacing": 2, "children": ["room", "readingTime"] },
+    "room": { "type": "Text", "text": "${state.room}", "style": "bodyStrong", "maxLines": 1 },
+    "readingTime": { "type": "Text", "text": "${state.recordedAt}", "style": "caption", "maxLines": 1 },
+    "balance": { "type": "Text", "column": 1, "text": "${state.balance}", "style": "subtitle",
+      "verticalAlignment": "center", "tooltip": "剩余电量" },
+    "history": {
+      "type": "List", "row": 2, "collection": "history", "variant": "divided",
+      "emptyState": { "title": "${state.sourceStatus == 'error' ? '请在右上角菜单连接本机服务' : state.status}", "icon": "info" },
+      "itemTemplate": "record"
+    },
+    "record": {
+      "type": "Grid", "columns": "*,Auto", "columnSpacing": 6, "padding": "2,4,2,4",
+      "children": ["recordDate", "recordValue"]
+    },
+    "recordDate": { "type": "Text", "text": "${$item.date}", "style": "caption", "verticalAlignment": "center" },
+    "recordValue": { "type": "Text", "column": 1, "text": "${$item.value}", "style": "body" },
+    "footer": {
+      "type": "Grid", "row": 3, "columns": "*,Auto,Auto", "columnSpacing": 6,
+      "children": ["footerText", "newer", "older"]
+    },
+    "footerText": {
+      "type": "Text", "text": "${state.sourceStatus == 'error' ? '无法连接本机用电服务' : state.period}",
+      "style": "caption", "verticalAlignment": "center", "maxLines": 1
+    },
+    "newer": {
+      "type": "Button", "column": 1, "text": "较新", "variant": "ghost",
+      "when": "${state.pageCount > 1}",
+      "onClick": { "type": "script.run", "fn": "changePage", "args": { "step": -1 } }
+    },
+    "older": {
+      "type": "Button", "column": 2, "text": "较早", "variant": "ghost",
+      "when": "${state.pageCount > 1}",
+      "onClick": { "type": "script.run", "fn": "changePage", "args": { "step": 1 } }
+    }
+  }
+}
